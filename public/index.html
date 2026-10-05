@@ -1,0 +1,884 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>NiHao Urdu Admin</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Nastaliq+Urdu:wght@400;600&family=Noto+Sans+SC:wght@400;600;700&family=Plus+Jakarta+Sans:ital,wght@0,400;0,500;0,600;0,700;1,500&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg: #f4efe4;
+      --bg-2: #ebe4d4;
+      --paper: #fffcf6;
+      --ink: #1c1917;
+      --muted: #6f675c;
+      --line: #e4dccb;
+      --green: #0f766e;
+      --green-mid: #0d9488;
+      --green-dark: #134e4a;
+      --green-soft: #ccfbf1;
+      --cinnabar: #c2410c;
+      --gold: #b45309;
+      --danger: #b91c1c;
+      --warn: #b45309;
+      --ok: #047857;
+      --shadow: 0 18px 50px rgba(28, 25, 23, .08);
+      --radius: 16px;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body { min-height: 100%; }
+    body {
+      font-family: "Plus Jakarta Sans", system-ui, sans-serif;
+      background: var(--bg);
+      color: var(--ink);
+      letter-spacing: -.01em;
+    }
+    .hidden { display: none !important; }
+    button, input, select, textarea { font: inherit; }
+    button { cursor: pointer; }
+    code { font-size: .9em; background: var(--bg-2); padding: 1px 6px; border-radius: 6px; }
+
+    .btn {
+      border: none; border-radius: 11px; padding: 10px 16px;
+      background: var(--green); color: #fff; font-weight: 600;
+      box-shadow: 0 8px 18px rgba(15, 118, 110, .22);
+      transition: transform .15s ease, background .15s ease, box-shadow .15s ease;
+    }
+    .btn:hover { background: var(--green-dark); transform: translateY(-1px); }
+    .btn:disabled { opacity: .45; cursor: not-allowed; transform: none; box-shadow: none; }
+    .btn.outline {
+      background: var(--paper); color: var(--ink); border: 1px solid var(--line); box-shadow: none;
+    }
+    .btn.outline:hover { background: #fff; border-color: #cfc4ae; }
+    .btn.danger { background: var(--danger); box-shadow: 0 8px 18px rgba(185, 28, 28, .18); }
+    .btn.danger:hover { background: #991b1b; }
+    .btn.sm { padding: 6px 10px; font-size: 12px; border-radius: 8px; box-shadow: none; }
+    .btn.full { width: 100%; }
+
+    .badge {
+      display: inline-flex; align-items: center; gap: 6px;
+      padding: 3px 10px; border-radius: 999px; font-size: 11px;
+      font-weight: 700; letter-spacing: .04em; text-transform: uppercase;
+      background: #ece7dc; color: #57534e;
+    }
+    .badge.pub { background: #d1fae5; color: var(--ok); }
+    .badge.draft { background: #ffedd5; color: var(--warn); }
+
+    /* Login */
+    #login-screen {
+      min-height: 100vh; display: grid; place-items: center; padding: 24px;
+      background:
+        radial-gradient(900px 420px at 10% -10%, rgba(13, 148, 136, .18), transparent 55%),
+        radial-gradient(700px 380px at 110% 10%, rgba(180, 83, 9, .12), transparent 50%),
+        linear-gradient(180deg, #f7f1e4, #ece3d1);
+    }
+    .login-card {
+      width: min(420px, 100%); background: var(--paper);
+      padding: 36px 32px 32px; border-radius: 24px;
+      border: 1px solid rgba(255,255,255,.7); box-shadow: var(--shadow);
+    }
+    .login-mark {
+      width: 56px; height: 56px; border-radius: 18px; display: grid; place-items: center;
+      background: linear-gradient(160deg, var(--green-mid), var(--green-dark));
+      color: #fff; font-family: "Noto Sans SC", serif; font-size: 28px; font-weight: 700;
+      margin-bottom: 18px; box-shadow: 0 12px 24px rgba(15, 118, 110, .28);
+    }
+    .login-card h1 { font-size: 26px; letter-spacing: -.03em; }
+    .login-card .sub { color: var(--muted); margin: 6px 0 24px; font-size: 14px; line-height: 1.5; }
+    label { display: block; font-size: 12px; font-weight: 700; margin-bottom: 6px; color: #57534e; letter-spacing: .04em; text-transform: uppercase; }
+    input, select, textarea {
+      width: 100%; padding: 12px 13px; border: 1px solid var(--line); border-radius: 12px;
+      margin-bottom: 14px; background: #fff; color: var(--ink); outline: none;
+      transition: border-color .15s, box-shadow .15s;
+    }
+    input:focus, select:focus, textarea:focus {
+      border-color: var(--green-mid); box-shadow: 0 0 0 4px rgba(13, 148, 136, .15);
+    }
+    textarea { min-height: 88px; resize: vertical; }
+    .err {
+      color: var(--danger); font-size: 13px; margin-bottom: 12px;
+      background: #fef2f2; border: 1px solid #fecaca; padding: 10px 12px; border-radius: 10px;
+    }
+
+    /* Layout */
+    #app { display: flex; min-height: 100vh; }
+    nav {
+      width: 248px; flex-shrink: 0; color: #ecfdf5;
+      background:
+        linear-gradient(180deg, rgba(255,255,255,.04), transparent 30%),
+        linear-gradient(180deg, #0f3d39, #12312e 55%, #0b2422);
+      padding: 22px 14px; display: flex; flex-direction: column;
+    }
+    .brand { display: flex; align-items: center; gap: 12px; padding: 4px 8px 20px; border-bottom: 1px solid rgba(255,255,255,.1); margin-bottom: 16px; }
+    .brand-mark {
+      width: 40px; height: 40px; border-radius: 12px; display: grid; place-items: center;
+      background: rgba(204, 251, 241, .16); font-family: "Noto Sans SC", sans-serif; font-weight: 700; font-size: 20px;
+    }
+    .brand h2 { font-size: 15px; font-weight: 700; }
+    .brand span { display: block; font-size: 11px; color: #99f6e4; opacity: .8; font-weight: 500; }
+    nav .nav {
+      display: flex; align-items: center; gap: 10px; width: 100%;
+      text-align: left; background: none; border: none; color: #c5ebe3;
+      padding: 10px 12px; border-radius: 12px; margin-bottom: 4px; font-weight: 500;
+    }
+    nav .nav svg { width: 18px; height: 18px; opacity: .85; flex-shrink: 0; }
+    nav .nav.active, nav .nav:hover { background: rgba(204, 251, 241, .12); color: #fff; }
+    nav .nav.active { box-shadow: inset 3px 0 0 #5eead4; }
+    nav .logout {
+      margin-top: auto; color: #fecaca; background: rgba(254, 202, 202, .08);
+      border: 1px solid rgba(254, 202, 202, .12); border-radius: 12px; padding: 10px 12px; font-weight: 600;
+    }
+    nav .logout:hover { background: rgba(254, 202, 202, .16); }
+    main { flex: 1; padding: 28px 32px 48px; overflow: auto; }
+    .top { display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 22px; flex-wrap: wrap; gap: 12px; }
+    .top h1 { font-size: 28px; letter-spacing: -.04em; }
+    .top .lede { color: var(--muted); font-size: 14px; margin-top: 4px; }
+    .card {
+      background: var(--paper); border-radius: var(--radius); padding: 8px 8px 4px;
+      border: 1px solid rgba(228, 220, 203, .9); box-shadow: 0 10px 30px rgba(28, 25, 23, .04);
+      margin-bottom: 16px; overflow: hidden;
+    }
+    .card-pad { padding: 20px; }
+    .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 14px; margin-bottom: 20px; }
+    .stat {
+      background: var(--paper); border-radius: var(--radius); padding: 18px 18px 16px;
+      border: 1px solid var(--line); box-shadow: 0 10px 30px rgba(28, 25, 23, .04);
+    }
+    .stat .kicker { color: var(--muted); font-size: 12px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
+    .stat h3 { font-size: 32px; margin-top: 8px; letter-spacing: -.04em; }
+    .stat .chip {
+      width: 34px; height: 34px; border-radius: 10px; display: grid; place-items: center;
+      background: var(--green-soft); color: var(--green-dark); font-size: 16px; margin-bottom: 10px;
+    }
+    table { width: 100%; border-collapse: collapse; font-size: 14px; }
+    th, td { text-align: left; padding: 13px 14px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+    th { color: #8a8172; font-weight: 700; font-size: 11px; text-transform: uppercase; letter-spacing: .06em; background: #faf6ee; }
+    tbody tr:hover td { background: #fbf8f1; }
+    tbody tr:last-child td { border-bottom: none; }
+    td.actions { white-space: nowrap; display: flex; gap: 6px; justify-content: flex-end; }
+    .hanzi { font-family: "Noto Sans SC", sans-serif; font-size: 20px; font-weight: 600; }
+    .urdu { font-family: "Noto Nastaliq Urdu", serif; font-size: 16px; line-height: 2; }
+    .empty { text-align: center; color: var(--muted); padding: 36px 12px !important; }
+    .toolbar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+    .toolbar select { width: auto; margin: 0; min-width: 180px; background: var(--paper); }
+
+    .overlay {
+      position: fixed; inset: 0; background: rgba(28, 25, 23, .45);
+      backdrop-filter: blur(6px); display: flex; align-items: center; justify-content: center;
+      z-index: 50; padding: 16px;
+    }
+    .modal {
+      background: var(--paper); border-radius: 20px; width: min(720px, 100%);
+      max-height: 90vh; overflow: auto; padding: 24px;
+      box-shadow: 0 30px 80px rgba(0,0,0,.25);
+    }
+    .modal h2 { margin-bottom: 18px; font-size: 20px; letter-spacing: -.03em; }
+    .modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 8px; }
+    .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    .toast {
+      position: fixed; bottom: 24px; right: 24px; background: var(--ink); color: #fff;
+      padding: 12px 16px; border-radius: 12px; z-index: 99; font-size: 14px; font-weight: 600;
+      box-shadow: var(--shadow);
+    }
+    .toast.err { background: var(--danger); }
+    .loading { text-align: center; padding: 64px 20px; color: var(--muted); display: grid; gap: 12px; place-items: center; }
+    .spinner {
+      width: 28px; height: 28px; border-radius: 50%;
+      border: 3px solid var(--line); border-top-color: var(--green);
+      animation: spin .8s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .topics { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
+    .topic {
+      padding: 6px 12px; border: 1px solid var(--line); border-radius: 999px;
+      font-size: 12px; cursor: pointer; background: #fff; font-weight: 600;
+    }
+    .topic.on { border-color: var(--green); background: var(--green-soft); color: var(--green-dark); }
+    pre.json { background: #f8f5ee; padding: 10px; border-radius: 8px; font-size: 12px; overflow: auto; max-height: 120px; }
+    .flow { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+    .flow-step {
+      background: #faf6ee; border: 1px solid var(--line); border-radius: 14px; padding: 14px;
+    }
+    .flow-step b { display: block; font-size: 12px; color: var(--green); margin-bottom: 4px; }
+    .note { color: var(--muted); font-size: 13px; line-height: 1.6; margin-top: 14px; }
+    .ex-row {
+      display: flex; justify-content: space-between; align-items: center; gap: 10px;
+      padding: 10px 0; border-bottom: 1px solid var(--line); font-size: 13px;
+    }
+    .ex-box {
+      background: #faf6ee; border: 1px solid var(--line); border-radius: 14px;
+      padding: 14px 14px 6px; margin-top: 4px;
+    }
+    .ex-box h3 { font-size: 15px; margin: 0 0 10px; letter-spacing: -.02em; }
+    .hint { color: var(--muted); font-size: 12px; margin: -6px 0 12px; line-height: 1.45; }
+    input.rtl, textarea.rtl { font-family: "Noto Nastaliq Urdu", serif; direction: rtl; text-align: right; }
+
+    @media (max-width: 860px) {
+      #app { flex-direction: column; }
+      nav { width: 100%; flex-direction: row; flex-wrap: wrap; align-items: center; gap: 6px; }
+      .brand { border: none; margin: 0; padding: 0 8px 0 0; }
+      nav .nav { width: auto; }
+      nav .logout { margin: 0 0 0 auto; }
+      main { padding: 20px 16px 40px; }
+      .flow { grid-template-columns: 1fr 1fr; }
+      .grid2 { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+
+<div id="login-screen">
+  <div class="login-card">
+    <div class="login-mark">你</div>
+    <h1>NiHao Urdu</h1>
+    <p class="sub">Sign in to manage courses, lessons, and vocabulary for the Android app.</p>
+    <div id="login-err" class="err hidden"></div>
+    <label>Email</label>
+    <input id="login-email" type="email" value="admin@nihao-urdu.com" />
+    <label>Password</label>
+    <input id="login-pass" type="password" value="admin123" />
+    <button class="btn full" onclick="doLogin()">Sign in</button>
+  </div>
+</div>
+
+<div id="app" class="hidden">
+  <nav>
+    <div class="brand">
+      <div class="brand-mark">你</div>
+      <div>
+        <h2>NiHao Urdu</h2>
+        <span>Admin console</span>
+      </div>
+    </div>
+    <button class="nav active" data-page="dashboard">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 10.5 12 4l8 6.5V20a1 1 0 0 1-1 1h-5v-6H10v6H5a1 1 0 0 1-1-1z"/></svg>
+      Dashboard
+    </button>
+    <button class="nav" data-page="courses">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 5h16v14H4z"/><path d="M8 9h8M8 13h5"/></svg>
+      Courses
+    </button>
+    <button class="nav" data-page="units">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M5 7h14M5 12h14M5 17h9"/></svg>
+      Units
+    </button>
+    <button class="nav" data-page="lessons">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M6 4h9l5 5v11H6z"/><path d="M15 4v5h5"/></svg>
+      Lessons
+    </button>
+    <button class="nav" data-page="vocabulary">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="8"/><path d="M8 12h8M12 8c1.8 1.6 1.8 6.4 0 8-1.8-1.6-1.8-6.4 0-8z"/></svg>
+      Vocabulary
+    </button>
+    <button class="nav" data-page="exercises">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M8 7h11M8 12h11M8 17h7"/><circle cx="5" cy="7" r="1.2" fill="currentColor"/><circle cx="5" cy="12" r="1.2" fill="currentColor"/><circle cx="5" cy="17" r="1.2" fill="currentColor"/></svg>
+      Exercises
+    </button>
+    <button class="logout" onclick="doLogout()">Log out</button>
+  </nav>
+  <main id="main"></main>
+</div>
+
+<div id="modal-root"></div>
+<div id="toast" class="toast hidden"></div>
+
+<script>
+const DEFAULT_BACKEND_API = 'http://localhost:8089/api';
+function resolveApi() {
+  try {
+    const q = new URLSearchParams(location.search).get('api');
+    if (q) return q.replace(/\/$/, '');
+  } catch (_) {}
+  if (location.protocol === 'http:' || location.protocol === 'https:') {
+    return location.origin + '/api';
+  }
+  return DEFAULT_BACKEND_API;
+}
+const API = resolveApi();
+const store = {
+  get(k) { try { return localStorage.getItem(k); } catch { return null; } },
+  set(k, v) { try { localStorage.setItem(k, v); } catch {} },
+  del(k) { try { localStorage.removeItem(k); } catch {} }
+};
+const TOPICS = ['Food','Business','Travel','Daily','CPEC','Health','Education','Technology','Culture','Shopping'];
+const EX_META = {
+  TEACH_FRAME: { label: 'Teach a word', hint: 'Shows one Chinese word with pinyin and Urdu meaning.' },
+  PICTURE_MATCH: { label: 'Choose the word', hint: 'Student picks the correct Chinese word from options.' },
+  LISTENING_CHOICE: { label: 'Listen and choose', hint: 'Same as choose-the-word, used for listening practice.' },
+  TONE_DRILL: { label: 'Tone drill', hint: 'Student picks the tone (1–4) of a Chinese word.' },
+  TAP_TO_BUILD: { label: 'Tap to build sentence', hint: 'Student taps characters in the correct order.' },
+  FILL_IN_THE_BLANK: { label: 'Fill in the blank', hint: 'Student picks the missing word from options.' },
+};
+let token = store.get('nihao_token') || '';
+let state = { courses: [], units: [], lessons: [], vocabulary: [], exercises: [], selCourse: '', selUnit: '' };
+
+function toast(msg, err) {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.className = 'toast' + (err ? ' err' : '');
+  el.classList.remove('hidden');
+  setTimeout(() => el.classList.add('hidden'), 3000);
+}
+
+async function api(path, opts = {}) {
+  const headers = { 'Content-Type': 'application/json', ...(opts.headers || {}) };
+  if (token) headers.Authorization = 'Bearer ' + token;
+  let res;
+  try {
+    res = await fetch(API + path, { ...opts, headers, mode: 'cors', credentials: 'omit' });
+  } catch (e) {
+    throw new Error('Cannot reach backend at ' + API + '. Start the server and retry.');
+  }
+  const data = await res.json().catch(() => ({}));
+  if (res.status === 401) { doLogout(); throw new Error('Session expired'); }
+  if (!res.ok) {
+    const details = data.error && typeof data.error === 'object'
+      ? Object.values(data.error).filter(Boolean).join('; ')
+      : '';
+    throw new Error(details || data.message || 'Request failed');
+  }
+  return data;
+}
+
+async function doLogin() {
+  const email = document.getElementById('login-email').value.trim();
+  const pass = document.getElementById('login-pass').value;
+  const err = document.getElementById('login-err');
+  err.classList.add('hidden');
+  try {
+    const r = await api('/auth/login', { method: 'POST', body: JSON.stringify({ email, password: pass }) });
+    token = r.data.token;
+    store.set('nihao_token', token);
+    showApp();
+  } catch (e) {
+    err.textContent = e.message;
+    err.classList.remove('hidden');
+  }
+}
+
+function doLogout() {
+  token = '';
+  store.del('nihao_token');
+  document.getElementById('app').classList.add('hidden');
+  document.getElementById('login-screen').classList.remove('hidden');
+}
+
+function showApp() {
+  document.getElementById('login-screen').classList.add('hidden');
+  document.getElementById('app').classList.remove('hidden');
+  document.querySelectorAll('.nav').forEach(b => b.onclick = () => goPage(b.dataset.page, b));
+  goPage('dashboard', document.querySelector('[data-page=dashboard]'));
+}
+
+function goPage(page, btn) {
+  document.querySelectorAll('.nav').forEach(b => b.classList.remove('active'));
+  if (btn) btn.classList.add('active');
+  const loaders = { dashboard: loadDashboard, courses: loadCourses, units: loadUnits, lessons: loadLessons, vocabulary: loadVocabulary, exercises: loadExercises };
+  loaders[page]?.();
+}
+
+function badge(s) {
+  const c = s === 'PUBLISHED' ? 'pub' : 'draft';
+  return `<span class="badge ${c}">${s || 'DRAFT'}</span>`;
+}
+
+function loading() {
+  return '<div class="loading"><span class="spinner"></span>Loading content</div>';
+}
+
+function modal(title, body, onSave) {
+  const root = document.getElementById('modal-root');
+  root.innerHTML = `<div class="overlay" onclick="if(event.target===this)closeModal()">
+    <div class="modal"><h2>${title}</h2>${body}
+    <div class="modal-actions">
+      <button class="btn outline" onclick="closeModal()">Cancel</button>
+      <button class="btn" id="modal-save">Save</button>
+    </div></div></div>`;
+  document.getElementById('modal-save').onclick = onSave;
+}
+function closeModal() { document.getElementById('modal-root').innerHTML = ''; }
+
+async function loadCoursesList() {
+  const r = await api('/courses?page=0&size=200');
+  state.courses = r.data?.content || [];
+  const stillExists = state.courses.some(c => c.id === state.selCourse);
+  if (!stillExists) state.selCourse = state.courses[0]?.id || '';
+  return state.courses;
+}
+
+async function loadUnitsList(courseId) {
+  if (!courseId) { state.units = []; state.selUnit = ''; return []; }
+  try {
+    const r = await api('/units/course/' + courseId);
+    state.units = r.data || [];
+  } catch (e) {
+    state.units = [];
+  }
+  const stillExists = state.units.some(u => u.id === state.selUnit);
+  if (!stillExists) state.selUnit = state.units[0]?.id || '';
+  return state.units;
+}
+
+// ─── Dashboard ───
+async function loadDashboard() {
+  document.getElementById('main').innerHTML = loading();
+  try {
+    const [cr, vr] = await Promise.all([
+      api('/courses?page=0&size=200'),
+      api('/vocabulary?page=0&size=1'),
+    ]);
+    const courses = cr.data?.content || [];
+    const units = courses.reduce((s, c) => s + (c.units || 0), 0);
+    document.getElementById('main').innerHTML = `
+      <div class="top"><div><h1>Dashboard</h1><p class="lede">Overview of published learning content</p></div></div>
+      <div class="stats">
+        <div class="stat"><div class="chip">课</div><p class="kicker">Courses</p><h3>${courses.length}</h3></div>
+        <div class="stat"><div class="chip">单</div><p class="kicker">Units</p><h3>${units}</h3></div>
+        <div class="stat"><div class="chip">词</div><p class="kicker">Vocabulary</p><h3>${vr.data?.totalElements || 0}</h3></div>
+        <div class="stat"><div class="chip">✓</div><p class="kicker">Published</p><h3>${courses.filter(c=>c.status==='PUBLISHED').length}</h3></div>
+      </div>
+      <div class="card card-pad">
+        <h3 style="margin-bottom:14px">Content flow</h3>
+        <div class="flow">
+          <div class="flow-step"><b>1. Courses</b>Create the HSK path</div>
+          <div class="flow-step"><b>2. Units</b>Add topics and titles</div>
+          <div class="flow-step"><b>3. Lessons</b>Attach exercises</div>
+          <div class="flow-step"><b>4. Publish</b>Push to the Android app</div>
+        </div>
+      </div>`;
+  } catch (e) { toast(e.message, true); }
+}
+
+// ─── Courses ───
+async function loadCourses() {
+  document.getElementById('main').innerHTML = loading();
+  try {
+    await loadCoursesList();
+    document.getElementById('main').innerHTML = `
+      <div class="top"><div><h1>Courses</h1><p class="lede">HSK tracks shown in the mobile app</p></div>
+        <button class="btn" onclick="openCourseForm()">+ Create course</button></div>
+      <div class="card"><table><thead><tr><th>Name</th><th>HSK</th><th>Units</th><th>Status</th><th></th></tr></thead>
+      <tbody>${state.courses.map(c => `<tr>
+        <td><strong>${esc(c.name)}</strong></td><td>${esc(c.hskLevel)}</td><td>${c.units||0}</td><td>${badge(c.status)}</td>
+        <td class="actions"><button class="btn sm outline" onclick='openCourseForm(${JSON.stringify(c).replace(/'/g,"&#39;")})'>Edit</button>
+        <button class="btn sm danger" onclick="deleteCourse('${c.id}')">Delete</button></td></tr>`).join('') || '<tr><td class="empty" colspan="5">No courses yet. Create one to get started.</td></tr>'}
+      </tbody></table></div>`;
+  } catch (e) { toast(e.message, true); }
+}
+
+function openCourseForm(c) {
+  c = c || {};
+  modal(c.id ? 'Edit course' : 'New course', `
+    <label>Name</label><input id="f-name" value="${esc(c.name||'')}" required />
+    <label>HSK Level</label><select id="f-hsk"><option>HSK 1</option><option>HSK 2</option><option>HSK 3</option><option>HSK 4</option><option>HSK 5</option><option>HSK 6</option></select>
+    <label>Description (min 10 chars)</label><textarea id="f-desc" minlength="10" required placeholder="Write at least 10 characters">${esc(c.description||'')}</textarea>
+    <label>Difficulty</label><select id="f-diff"><option>Beginner</option><option>Intermediate</option><option>Advanced</option></select>
+    <label>Status</label><select id="f-status"><option>PUBLISHED</option><option>DRAFT</option><option>ARCHIVED</option></select>
+  `, async () => {
+    const body = {
+      name: document.getElementById('f-name').value.trim(),
+      hskLevel: document.getElementById('f-hsk').value,
+      description: document.getElementById('f-desc').value.trim(),
+      difficulty: document.getElementById('f-diff').value,
+      status: document.getElementById('f-status').value,
+    };
+    if (!body.name) { toast('Name is required', true); return; }
+    if (body.description.length < 10) { toast('Description must be at least 10 characters', true); return; }
+    try {
+      if (c.id) await api('/courses/' + c.id, { method: 'PUT', body: JSON.stringify(body) });
+      else await api('/courses', { method: 'POST', body: JSON.stringify(body) });
+      closeModal(); toast('Saved'); loadCourses();
+    } catch (e) { toast(e.message, true); }
+  });
+  if (c.hskLevel) document.getElementById('f-hsk').value = c.hskLevel;
+  if (c.difficulty) document.getElementById('f-diff').value = c.difficulty;
+  if (c.status) document.getElementById('f-status').value = c.status;
+}
+
+async function deleteCourse(id) {
+  if (!confirm('Permanently delete this course and ALL of its units, lessons, exercises, and student progress? This cannot be undone.')) return;
+  try {
+    await api('/courses/' + id, { method: 'DELETE' });
+    if (state.selCourse === id) { state.selCourse = ''; state.selUnit = ''; }
+    toast('Deleted'); loadCourses();
+  } catch (e) { toast(e.message, true); }
+}
+
+// ─── Units ───
+async function loadUnits() {
+  document.getElementById('main').innerHTML = loading();
+  try {
+    await loadCoursesList();
+    await loadUnitsList(state.selCourse);
+    document.getElementById('main').innerHTML = `
+      <div class="top"><div><h1>Units</h1><p class="lede">Filter by course, then add units</p></div>
+        <div class="toolbar">
+          <select onchange="state.selCourse=this.value;loadUnits()">${courseOpts()}</select>
+          <button class="btn" onclick="openUnitForm()" ${state.selCourse?'':'disabled'}>+ Create unit</button>
+        </div></div>
+      <div class="card"><table><thead><tr><th>#</th><th>Urdu</th><th>Hanzi</th><th>Status</th><th></th></tr></thead>
+      <tbody>${state.units.map(u => `<tr>
+        <td>${u.unitNumber}</td><td class="urdu">${esc(u.urduTitle)}</td><td class="hanzi">${esc(u.hanziTitle)}</td><td>${badge(u.status)}</td>
+        <td class="actions"><button class="btn sm outline" onclick='openUnitForm(${JSON.stringify(u).replace(/'/g,"&#39;")})'>Edit</button>
+        <button class="btn sm danger" onclick="deleteUnit('${u.id}')">Delete</button></td></tr>`).join('') || '<tr><td class="empty" colspan="5">No units — select a course first.</td></tr>'}
+      </tbody></table></div>`;
+  } catch (e) { toast(e.message, true); }
+}
+
+function courseOpts() {
+  return state.courses.map(c => `<option value="${c.id}" ${c.id===state.selCourse?'selected':''}>${esc(c.name)}</option>`).join('');
+}
+
+function openUnitForm(u) {
+  u = u || {}; const selTopics = u.topics || [];
+  modal(u.id ? 'Edit unit' : 'New unit', `
+    <div class="grid2">
+      <div><label>Unit #</label><input id="f-unum" type="number" value="${u.unitNumber||''}" /></div>
+      <div><label>HSK</label><input id="f-uhsk" value="${esc(u.hskLevel||'HSK 1')}" /></div>
+    </div>
+    <label>Urdu Title</label><input id="f-uurdu" value="${esc(u.urduTitle||'')}" />
+    <label>Hanzi Title</label><input id="f-uhanzi" value="${esc(u.hanziTitle||'')}" />
+    <label>Grammar Point</label><textarea id="f-ugram">${esc(u.grammarPoint||'')}</textarea>
+    <label>Topics</label><div class="topics" id="f-topics">${TOPICS.map(t=>`<span class="topic ${selTopics.includes(t)?'on':''}" data-t="${t}" onclick="this.classList.toggle('on')">${t}</span>`).join('')}</div>
+    <div class="grid2">
+      <div><label>Time (min)</label><input id="f-utime" type="number" value="${u.estimatedTime||20}" /></div>
+      <div><label>Difficulty</label><select id="f-udiff"><option>Easy</option><option>Medium</option><option>Hard</option></select></div>
+    </div>
+    <label>Status</label><select id="f-ustatus"><option>PUBLISHED</option><option>DRAFT</option><option>IN_REVIEW</option></select>
+  `, async () => {
+    const body = {
+      unitNumber: +document.getElementById('f-unum').value || undefined,
+      urduTitle: document.getElementById('f-uurdu').value.trim(),
+      hanziTitle: document.getElementById('f-uhanzi').value.trim(),
+      grammarPoint: document.getElementById('f-ugram').value.trim(),
+      hskLevel: document.getElementById('f-uhsk').value,
+      topics: [...document.querySelectorAll('#f-topics .topic.on')].map(el => el.dataset.t),
+      estimatedTime: +document.getElementById('f-utime').value,
+      difficulty: document.getElementById('f-udiff').value,
+      status: document.getElementById('f-ustatus').value,
+    };
+    try {
+      if (u.id) await api('/units/' + u.id, { method: 'PUT', body: JSON.stringify(body) });
+      else await api('/units/course/' + state.selCourse, { method: 'POST', body: JSON.stringify(body) });
+      closeModal(); toast('Saved'); loadUnits();
+    } catch (e) { toast(e.message, true); }
+  });
+  if (u.difficulty) document.getElementById('f-udiff').value = u.difficulty;
+  if (u.status) document.getElementById('f-ustatus').value = u.status;
+}
+
+async function deleteUnit(id) {
+  if (!confirm('Permanently delete this unit and ALL of its lessons, exercises, and student progress? This cannot be undone.')) return;
+  try {
+    await api('/units/' + id, { method: 'DELETE' });
+    if (state.selUnit === id) state.selUnit = '';
+    toast('Deleted'); loadUnits();
+  } catch (e) { toast(e.message, true); }
+}
+
+// ─── Lessons ───
+async function loadLessons() {
+  document.getElementById('main').innerHTML = loading();
+  try {
+    await loadCoursesList();
+    await loadUnitsList(state.selCourse);
+    if (state.selUnit) {
+      const r = await api('/lessons/unit/' + state.selUnit);
+      state.lessons = r.data || [];
+    } else state.lessons = [];
+    document.getElementById('main').innerHTML = `
+      <div class="top"><div><h1>Lessons</h1><p class="lede">Lessons and exercises inside a unit</p></div>
+        <div class="toolbar">
+          <select onchange="state.selCourse=this.value;state.selUnit='';loadLessons()">${courseOpts()}</select>
+          <select onchange="state.selUnit=this.value;loadLessons()">${unitOpts()}</select>
+          <button class="btn" onclick="openLessonForm()" ${state.selUnit?'':'disabled'}>+ Create lesson</button>
+        </div></div>
+      <div class="card"><table><thead><tr><th>#</th><th>Title</th><th>Type</th><th>Exercises</th><th>Status</th><th></th></tr></thead>
+      <tbody>${state.lessons.map(l => `<tr>
+        <td>${l.lessonNumber}</td><td class="urdu">${esc(l.urduTitle)}</td><td>${l.lessonType}</td><td>${l.exercisesCount||0}</td><td>${badge(l.status)}</td>
+        <td class="actions"><button class="btn sm outline" onclick="editLesson('${l.id}')">Edit</button>
+        <button class="btn sm" onclick="editLesson('${l.id}')">+ Exercise</button>
+        <button class="btn sm danger" onclick="deleteLesson('${l.id}')">Delete</button></td></tr>`).join('') || '<tr><td class="empty" colspan="6">No lessons in this unit.</td></tr>'}
+      </tbody></table></div>`;
+  } catch (e) { toast(e.message, true); }
+}
+
+function unitOpts() {
+  return state.units.map(u => `<option value="${u.id}" ${u.id===state.selUnit?'selected':''}>${esc(u.urduTitle)}</option>`).join('');
+}
+
+async function editLesson(id) {
+  const r = await api('/lessons/' + id);
+  openLessonForm(r.data, id);
+}
+
+function openLessonForm(l, id) {
+  l = l || {};
+  modal(id ? 'Edit lesson' : 'New lesson', `
+    <div class="grid2">
+      <div><label>Lesson #</label><input id="f-lnum" type="number" value="${l.lessonNumber||''}" /></div>
+      <div><label>Type</label><select id="f-ltype"><option>NORMAL</option><option>CHECKPOINT</option><option>REVIEW</option></select></div>
+    </div>
+    <label>Urdu Title</label><input id="f-ltitle" class="rtl" value="${esc(l.urduTitle||'')}" />
+    <label>Instruction</label><textarea id="f-linstr" class="rtl">${esc(l.instructionText||'')}</textarea>
+    <div class="grid2">
+      <div><label>Difficulty</label><select id="f-ldiff"><option>Easy</option><option>Medium</option><option>Hard</option></select></div>
+      <div><label>Status</label><select id="f-lstatus"><option>PUBLISHED</option><option>DRAFT</option><option>ARCHIVED</option></select></div>
+    </div>
+    ${id ? `<hr style="margin:16px 0;border:none;border-top:1px solid var(--line)">
+    <div class="ex-box">
+      <h3>Add exercise</h3>
+      <p class="hint" id="f-exhint"></p>
+      <label>Exercise type</label>
+      <select id="f-extype" onchange="syncExerciseFields()">${Object.entries(EX_META).map(([k,v])=>`<option value="${k}">${v.label}</option>`).join('')}</select>
+      <label>Instruction in Urdu</label>
+      <input id="f-expromptur" class="rtl" placeholder="اس لفظ کو سیکھیں" />
+      <label>Instruction in English</label>
+      <input id="f-exprompten" placeholder="Learn this word" />
+      <div id="ex-fields"></div>
+      <button type="button" class="btn" style="margin:4px 0 12px" onclick="addExerciseToLesson('${id}')">Add this exercise</button>
+    </div>
+    <div id="ex-list" style="margin-top:12px"></div>` : '<p class="note">Save the lesson first, then you can add exercises with Chinese, pinyin, and Urdu fields.</p>'}
+  `, async () => {
+    const body = {
+      lessonNumber: +document.getElementById('f-lnum').value || undefined,
+      lessonType: document.getElementById('f-ltype').value,
+      urduTitle: document.getElementById('f-ltitle').value.trim(),
+      instructionText: document.getElementById('f-linstr').value.trim(),
+      difficulty: document.getElementById('f-ldiff').value,
+      status: document.getElementById('f-lstatus').value,
+      crowns: 3,
+    };
+    try {
+      if (id) {
+        await api('/lessons/' + id, { method: 'PUT', body: JSON.stringify(body) });
+        closeModal(); toast('Saved'); loadLessons();
+      } else {
+        const r = await api('/lessons/unit/' + state.selUnit, { method: 'POST', body: JSON.stringify(body) });
+        toast('Lesson saved — now add exercises');
+        openLessonForm(r.data, r.data.id);
+      }
+    } catch (e) { toast(e.message, true); }
+  });
+  if (l.lessonType) document.getElementById('f-ltype').value = l.lessonType;
+  if (l.difficulty) document.getElementById('f-ldiff').value = l.difficulty;
+  if (l.status) document.getElementById('f-lstatus').value = l.status;
+  if (id) { syncExerciseFields(); refreshExList(id); }
+}
+
+async function refreshExList(lessonId) {
+  const el = document.getElementById('ex-list');
+  if (!el) return;
+  const r = await api('/exercises/lesson/' + lessonId);
+  el.innerHTML = (r.data||[]).map(ex => {
+    const d = ex.exerciseData || {};
+    const word = d.word || d.answer || (d.items && d.items[0]) || '';
+    const urdu = d.urdu || (d.gloss && d.gloss[0] && (d.gloss[0].ur || d.gloss[0].en)) || '';
+    const label = EX_META[ex.exerciseType]?.label || ex.exerciseType;
+    return `<div class="ex-row">
+      <span><strong>${esc(label)}</strong> · <span class="hanzi">${esc(word)}</span> ${urdu ? '· <span class="urdu">' + esc(urdu) + '</span>' : ''} <span class="badge">#${ex.exerciseOrder}</span></span>
+      <button class="btn sm danger" onclick="deleteExercise('${ex.id}','${lessonId}')">Delete</button></div>`;
+  }).join('') || '<p class="note">No exercises yet. Fill the fields above and click Add this exercise.</p>';
+}
+
+function fieldVal(id) {
+  const el = document.getElementById(id);
+  return el ? el.value.trim() : '';
+}
+
+function splitList(id) {
+  return fieldVal(id).split(/[,،\n]+/).map(s => s.trim()).filter(Boolean);
+}
+
+function syncExerciseFields() {
+  const typeEl = document.getElementById('f-extype');
+  const fields = document.getElementById('ex-fields');
+  const hint = document.getElementById('f-exhint');
+  if (!typeEl || !fields) return;
+  const type = typeEl.value;
+  if (hint) hint.textContent = EX_META[type]?.hint || '';
+  if (type === 'TEACH_FRAME') {
+    fields.innerHTML = `
+      <div class="grid2">
+        <div><label>Chinese word (Hanzi)</label><input id="f-exword" placeholder="你好" /></div>
+        <div><label>Pinyin</label><input id="f-expinyin" placeholder="nǐ hǎo" /></div>
+      </div>
+      <label>Urdu meaning</label><input id="f-exurdu" class="rtl" placeholder="ہیلو" />`;
+  } else if (type === 'TONE_DRILL') {
+    fields.innerHTML = `
+      <div class="grid2">
+        <div><label>Chinese word (Hanzi)</label><input id="f-exword" placeholder="你好" /></div>
+        <div><label>Pinyin</label><input id="f-expinyin" placeholder="nǐ hǎo" /></div>
+      </div>
+      <div class="grid2">
+        <div><label>Urdu meaning</label><input id="f-exurdu" class="rtl" placeholder="ہیلو" /></div>
+        <div><label>Correct tone</label><select id="f-extone"><option value="1">1 · flat</option><option value="2">2 · rising</option><option value="3">3 · dipping</option><option value="4">4 · falling</option></select></div>
+      </div>`;
+  } else if (type === 'TAP_TO_BUILD') {
+    fields.innerHTML = `
+      <label>Characters to tap (comma separated)</label>
+      <input id="f-exitems" placeholder="你, 好, 吗" />
+      <p class="hint">These tiles appear on screen. Example: 你, 好, 吗</p>
+      <label>Correct order (comma separated)</label>
+      <input id="f-exanswer" placeholder="你, 好" />
+      <label>Urdu meaning</label>
+      <input id="f-exurdu" class="rtl" placeholder="سلام" />`;
+  } else {
+    fields.innerHTML = `
+      <label>Options (comma separated Chinese words)</label>
+      <input id="f-exoptions" placeholder="你好, 谢谢, 再见, 对不起" />
+      <p class="hint">Write 3 or 4 choices. One of them must be the correct answer.</p>
+      <label>Correct answer (copy one option exactly)</label>
+      <input id="f-exanswer" placeholder="你好" />
+      <div class="grid2">
+        <div><label>Pinyin of the answer</label><input id="f-expinyin" placeholder="nǐ hǎo" /></div>
+        <div><label>Urdu of the answer</label><input id="f-exurdu" class="rtl" placeholder="ہیلو" /></div>
+      </div>`;
+  }
+}
+
+function collectExerciseData() {
+  const type = fieldVal('f-extype');
+  const promptUr = fieldVal('f-expromptur');
+  const promptEn = fieldVal('f-exprompten');
+  const word = fieldVal('f-exword');
+  const pinyin = fieldVal('f-expinyin');
+  const urdu = fieldVal('f-exurdu');
+  if (type === 'TEACH_FRAME') {
+    if (!word) throw new Error('Chinese word is required');
+    return { promptUr, promptEn, word, items: [word], answer: word, pinyin, urdu, gloss: [{ ur: urdu, en: word }] };
+  }
+  if (type === 'TONE_DRILL') {
+    if (!word) throw new Error('Chinese word is required');
+    const tone = fieldVal('f-extone') || '1';
+    return { promptUr, promptEn, word, items: [word], answer: word + tone, pinyin, urdu, gloss: [{ ur: urdu, en: word }] };
+  }
+  if (type === 'TAP_TO_BUILD') {
+    const items = splitList('f-exitems');
+    const answerParts = splitList('f-exanswer');
+    if (items.length < 2) throw new Error('Add at least 2 characters to tap');
+    if (!answerParts.length) throw new Error('Correct order is required');
+    return { promptUr, promptEn, items, options: items, answer: answerParts.join(' '), urdu, gloss: [{ ur: urdu, en: answerParts.join('') }] };
+  }
+  const options = splitList('f-exoptions');
+  const answer = fieldVal('f-exanswer');
+  if (options.length < 2) throw new Error('Add at least 2 options');
+  if (!answer) throw new Error('Correct answer is required');
+  if (!options.includes(answer)) throw new Error('Correct answer must match one option exactly');
+  return { promptUr, promptEn, options, items: options, answer, word: answer, pinyin, urdu, gloss: [{ ur: urdu, en: answer }] };
+}
+
+async function addExerciseToLesson(lessonId) {
+  try {
+    const data = collectExerciseData();
+    await api('/exercises/lesson/' + lessonId, { method: 'POST', body: JSON.stringify({
+      exerciseType: fieldVal('f-extype'),
+      exerciseOrder: (document.querySelectorAll('#ex-list .ex-row').length || 0) + 1,
+      exerciseData: data,
+    })});
+    toast('Exercise added');
+    ['f-expromptur','f-exprompten','f-exword','f-expinyin','f-exurdu','f-exoptions','f-exitems','f-exanswer'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.value = '';
+    });
+    refreshExList(lessonId);
+  } catch (e) { toast(e.message || 'Could not add exercise', true); }
+}
+
+async function deleteExercise(id, lessonId) {
+  if (!confirm('Delete exercise?')) return;
+  await api('/exercises/' + id, { method: 'DELETE' });
+  refreshExList(lessonId); toast('Deleted');
+}
+
+async function deleteLesson(id) {
+  if (!confirm('Permanently delete this lesson and ALL of its exercises? This cannot be undone.')) return;
+  try { await api('/lessons/' + id, { method: 'DELETE' }); toast('Deleted'); loadLessons(); } catch (e) { toast(e.message, true); }
+}
+
+// ─── Vocabulary ───
+async function loadVocabulary() {
+  document.getElementById('main').innerHTML = loading();
+  try {
+    const r = await api('/vocabulary?page=0&size=200');
+    state.vocabulary = r.data?.content || [];
+    document.getElementById('main').innerHTML = `
+      <div class="top"><div><h1>Vocabulary</h1><p class="lede">Hanzi, pinyin, and Urdu glosses</p></div>
+        <button class="btn" onclick="openVocabForm()">+ Add word</button></div>
+      <div class="card"><table><thead><tr><th>Hanzi</th><th>Pinyin</th><th>Urdu</th><th>HSK</th><th></th></tr></thead>
+      <tbody>${state.vocabulary.map(v => `<tr>
+        <td class="hanzi">${esc(v.hanzi)}</td><td>${esc(v.pinyin)}</td><td class="urdu">${esc(v.urduTranslation)}</td><td>${v.hskLevel}</td>
+        <td class="actions"><button class="btn sm outline" onclick='openVocabForm(${JSON.stringify(v).replace(/'/g,"&#39;")})'>Edit</button>
+        <button class="btn sm danger" onclick="deleteVocab('${v.id}')">Delete</button></td></tr>`).join('') || '<tr><td class="empty" colspan="5">No words yet.</td></tr>'}
+      </tbody></table></div>`;
+  } catch (e) { toast(e.message, true); }
+}
+
+function openVocabForm(v) {
+  v = v || {};
+  modal(v.id ? 'Edit word' : 'New word', `
+    <div class="grid2">
+      <div><label>Hanzi</label><input id="f-vhanzi" value="${esc(v.hanzi||'')}" /></div>
+      <div><label>Pinyin</label><input id="f-vpin" value="${esc(v.pinyin||'')}" /></div>
+    </div>
+    <div class="grid2">
+      <div><label>Tone</label><input id="f-vtone" type="number" value="${v.tone??0}" /></div>
+      <div><label>HSK</label><select id="f-vhsk">${[1,2,3,4,5,6].map(n=>`<option>${n}</option>`).join('')}</select></div>
+    </div>
+    <label>Urdu Translation</label><input id="f-vurdu" value="${esc(v.urduTranslation||'')}" />
+    <label>Roman Urdu</label><input id="f-vroman" value="${esc(v.romanUrdu||'')}" />
+    <label>Part of Speech</label><input id="f-vpos" value="${esc(v.partOfSpeech||'')}" />
+  `, async () => {
+    const body = {
+      hanzi: document.getElementById('f-vhanzi').value.trim(),
+      pinyin: document.getElementById('f-vpin').value.trim(),
+      tone: +document.getElementById('f-vtone').value,
+      hskLevel: +document.getElementById('f-vhsk').value,
+      urduTranslation: document.getElementById('f-vurdu').value.trim(),
+      romanUrdu: document.getElementById('f-vroman').value.trim(),
+      partOfSpeech: document.getElementById('f-vpos').value.trim(),
+    };
+    try {
+      if (v.id) await api('/vocabulary/' + v.id, { method: 'PUT', body: JSON.stringify(body) });
+      else await api('/vocabulary', { method: 'POST', body: JSON.stringify(body) });
+      closeModal(); toast('Saved'); loadVocabulary();
+    } catch (e) { toast(e.message, true); }
+  });
+  if (v.hskLevel) document.getElementById('f-vhsk').value = v.hskLevel;
+}
+
+async function deleteVocab(id) {
+  if (!confirm('Delete word?')) return;
+  try { await api('/vocabulary/' + id, { method: 'DELETE' }); toast('Deleted'); loadVocabulary(); } catch (e) { toast(e.message, true); }
+}
+
+// ─── Exercises ───
+async function loadExercises() {
+  document.getElementById('main').innerHTML = loading();
+  try {
+    const r = await api('/exercises?page=0&size=200');
+    state.exercises = r.data?.content || [];
+    document.getElementById('main').innerHTML = `
+      <div class="top"><div><h1>Exercises</h1><p class="lede">Add new exercises from the Lessons page</p></div></div>
+      <div class="card"><table><thead><tr><th>Type</th><th>Lesson</th><th>Unit</th><th>Course</th><th>Order</th><th></th></tr></thead>
+      <tbody>${state.exercises.map(ex => `<tr>
+        <td><span class="badge">${ex.exerciseType}</span></td><td>${esc(ex.lessonTitle)}</td><td>${esc(ex.unitTitle)}</td><td>${esc(ex.courseName)}</td><td>${ex.exerciseOrder}</td>
+        <td class="actions"><button class="btn sm danger" onclick="deleteExGlobal('${ex.id}')">Delete</button></td></tr>`).join('') || '<tr><td class="empty" colspan="6">No exercises yet.</td></tr>'}
+      </tbody></table></div>`;
+  } catch (e) { toast(e.message, true); }
+}
+
+async function deleteExGlobal(id) {
+  if (!confirm('Delete?')) return;
+  await api('/exercises/' + id, { method: 'DELETE' }); toast('Deleted'); loadExercises();
+}
+
+function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;'); }
+
+if (token) showApp();
+document.getElementById('login-pass').addEventListener('keydown', e => { if (e.key === 'Enter') doLogin(); });
+</script>
+</body>
+</html>
