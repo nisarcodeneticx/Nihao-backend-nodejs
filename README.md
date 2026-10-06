@@ -6,7 +6,7 @@ The routes are the same, under `/api`.
 
 | | |
 |---|---|
-| Admin page | http://localhost:8090/api/index.html |
+| Admin page | http://localhost:8090/ and, on Vercel, the site root `/` |
 | Admin login | `POST /api/auth/login` |
 | Mobile login | `POST /api/v1/api/login` |
 | Mobile register | `POST /api/v1/api/register` |

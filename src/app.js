@@ -24,6 +24,11 @@ app.use((req, res, next) => {
   res.json = (body) => send(compact(body));
   next();
 });
+const page = path.join(__dirname, '..', 'index.html');
+app.get(['/', '/index.html', '/admin', '/admin.html', '/api', '/api/', '/api/index.html', '/api/admin', '/api/admin.html'], (req, res) => {
+  res.type('html').sendFile(page);
+});
+
 app.use(async (req, res, next) => {
   try {
     await ensureReady();
@@ -33,13 +38,8 @@ app.use(async (req, res, next) => {
   }
 });
 
-const page = path.join(__dirname, '..', 'public', 'index.html');
-app.get(['/api', '/api/', '/api/index.html', '/api/admin', '/api/admin.html'], (req, res) => {
-  res.sendFile(page);
-});
-
 app.post('/api/auth/login', async (req, res, next) => {
-  try { res.json(ok('Login successful', await adminLogin(req.body))); } catch (error) { next(error); }
+  try { res.json(ok(await adminLogin(req.body), 'Login successful')); } catch (error) { next(error); }
 });
 app.post('/api/v1/api/login', async (req, res, next) => {
   try { res.json(ok('Login successful', await mobileLogin(req.body))); } catch (error) { next(error); }
