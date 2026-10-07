@@ -1,4 +1,4 @@
-const { query, queryOne } = require('./db');
+const { query, queryOne, withTx } = require('./db');
 const { badRequest, notFound, isLive, num, text } = require('./util');
 
 async function getOrCreateProfile(userId, client) {
@@ -105,6 +105,10 @@ async function ensureCourses(userId, courseIds, client) {
     client
   );
   if (!missing || missing.total === 0) return;
+  if (!client) {
+    await withTx((tx) => ensureCourses(userId, courseIds, tx));
+    return;
+  }
 
   const units = (await query(
     `SELECT id, course_id, unit_number

@@ -73,8 +73,31 @@ router.get('/v1/courses/:courseId/units', async (req, res, next) => {
     const limit = Math.max(Number(req.query.limit || 10), 1);
     const from = Math.min(offset, all.length);
     const slice = all.slice(from, Math.min(from + limit, all.length));
-    const nodes = [];
-    for (let i = 0; i < slice.length; i += 1) nodes.push(await unitJourney(slice[i], offset + i, id));
+    const unitIds = slice.map((unit) => unit.id);
+    const lessonRows = unitIds.length
+      ? (await query(
+        'SELECT * FROM lessons WHERE unit_id = ANY($1::text[]) ORDER BY lesson_number ASC',
+        [unitIds]
+      )).filter((lesson) => isLive(lesson.status))
+      : [];
+    const lessonsByUnit = new Map();
+    for (const lesson of lessonRows) {
+      if (!lessonsByUnit.has(lesson.unit_id)) lessonsByUnit.set(lesson.unit_id, []);
+      lessonsByUnit.get(lesson.unit_id).push(lesson);
+    }
+    const progressRows = id && unitIds.length
+      ? await query(
+        'SELECT * FROM user_unit_progress WHERE user_id = $1 AND unit_id = ANY($2::text[])',
+        [id, unitIds]
+      )
+      : [];
+    const progressByUnit = new Map(progressRows.map((row) => [row.unit_id, row]));
+    const nodes = slice.map((unit, index) => unitNode(
+      unit,
+      offset + index,
+      lessonsByUnit.get(unit.id) || [],
+      id ? progressByUnit.get(unit.id) : null
+    ));
     res.json(okList('Units fetched successfully', nodes));
   } catch (error) { next(error); }
 });
@@ -174,7 +197,28 @@ router.get('/v1/api/vocabulary', async (req, res, next) => {
     }
     sql += ' ORDER BY created_at DESC NULLS LAST';
     const rows = await query(sql, params);
-    res.json(okList('Vocabulary fetched successfully', await Promise.all(rows.map(vocabularyListItem))));
+    const ids = rows.map((item) => item.id);
+    const exampleRows = ids.length
+      ? await query('SELECT * FROM example_sentences WHERE vocabulary_id = ANY($1::text[])', [ids])
+      : [];
+    const topicRows = ids.length
+      ? await query('SELECT vocabulary_id, topic FROM vocabulary_topics WHERE vocabulary_id = ANY($1::text[])', [ids])
+      : [];
+    const examplesByWord = new Map();
+    for (const example of exampleRows) {
+      if (!examplesByWord.has(example.vocabulary_id)) examplesByWord.set(example.vocabulary_id, []);
+      examplesByWord.get(example.vocabulary_id).push(example);
+    }
+    const topicsByWord = new Map();
+    for (const topic of topicRows) {
+      if (!topicsByWord.has(topic.vocabulary_id)) topicsByWord.set(topic.vocabulary_id, []);
+      topicsByWord.get(topic.vocabulary_id).push(topic.topic);
+    }
+    res.json(okList('Vocabulary fetched successfully', rows.map((item) => vocabularyListItem(
+      item,
+      examplesByWord.get(item.id) || [],
+      topicsByWord.get(item.id) || []
+    ))));
   } catch (error) { next(error); }
 });
 
@@ -246,6 +290,10 @@ async function unitJourney(unit, index, id) {
   const progress = id
     ? await queryOne('SELECT * FROM user_unit_progress WHERE user_id = $1 AND unit_id = $2', [id, unit.id])
     : null;
+  return unitNode(unit, index, lessons, progress);
+}
+
+function unitNode(unit, index, lessons, progress) {
   const totalItems = lessons.reduce((sum, lesson) => sum + num(lesson.words_count), 0);
   const hasCheckpoint = lessons.some((lesson) => String(lesson.lesson_type).toUpperCase() === 'CHECKPOINT');
   const base = {
@@ -333,8 +381,7 @@ async function vocabularyDetail(item) {
   };
 }
 
-async function vocabularyListItem(item) {
-  const examples = await query('SELECT * FROM example_sentences WHERE vocabulary_id = $1', [item.id]);
+function vocabularyListItem(item, examples, topicNames) {
   return {
     id: item.id,
     hanzi: item.hanzi,
@@ -344,7 +391,7 @@ async function vocabularyListItem(item) {
     romanUrdu: text(item.roman_urdu),
     partOfSpeech: text(item.part_of_speech),
     hskLevel: num(item.hsk_level, 1),
-    topics: await topics('vocabulary_topics', 'vocabulary_id', item.id),
+    topics: topicNames,
     examples: examples.map((example) => ({ hanzi: example.hanzi, pinyin: example.pinyin, urdu: example.urdu })),
     audioMaleUrl: item.audio_male_url,
     audioFemaleUrl: item.audio_female_url,
