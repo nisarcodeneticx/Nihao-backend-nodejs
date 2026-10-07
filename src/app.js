@@ -72,10 +72,13 @@ app.post('/api/v1/api/lessons/:lessonId/complete', requireUser, async (req, res,
   } catch (error) { next(error); }
 });
 
-app.use('/api', (req, res, next) => {
+const mobileApi = express.Router();
+mobileApi.use((req, res, next) => {
   if (req.path.startsWith('/v1')) return next();
   next('router');
-}, optionalUser, mobile);
+});
+mobileApi.use(optionalUser, mobile);
+app.use('/api', mobileApi);
 app.use('/api', requireUser, admin);
 
 app.use((error, req, res, next) => {
