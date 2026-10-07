@@ -1,101 +1,127 @@
 const { query } = require('./db');
 const { isLive, num } = require('./util');
 
-let cache = null;
-let loading = null;
+const TABLES = {
+  courses: 'SELECT * FROM courses ORDER BY created_at ASC NULLS LAST',
+  units: 'SELECT * FROM units ORDER BY unit_number ASC',
+  lessons: 'SELECT * FROM lessons ORDER BY lesson_number ASC',
+  exercises: 'SELECT * FROM exercises ORDER BY exercise_order ASC',
+  vocabulary: 'SELECT * FROM vocabulary ORDER BY created_at DESC NULLS LAST',
+  examples: 'SELECT * FROM example_sentences',
+  vocabulary_topics: 'SELECT vocabulary_id, topic FROM vocabulary_topics',
+  unit_topics: 'SELECT unit_id, topic FROM unit_topics',
+  unit_objectives: 'SELECT unit_id, objective FROM unit_objectives'
+};
+
+const rows = {};
+const loading = {};
+let assembled;
+let assembling;
 
 function invalidateCatalog() {
-  cache = null;
-  loading = null;
+  Object.keys(TABLES).forEach((name) => {
+    rows[name] = null;
+    loading[name] = null;
+  });
+  assembled = null;
+  assembling = null;
 }
 
-async function getCatalog() {
-  if (cache) return cache;
-  if (!loading) {
-    loading = loadCatalog().then((loaded) => {
-      cache = loaded;
-      loading = null;
-      return loaded;
+async function cachedTable(name) {
+  if (rows[name]) return rows[name];
+  if (!loading[name]) {
+    loading[name] = query(TABLES[name]).then((data) => {
+      rows[name] = data;
+      loading[name] = null;
+      return data;
     }).catch((error) => {
-      loading = null;
+      loading[name] = null;
       throw error;
     });
   }
-  return loading;
+  return loading[name];
 }
 
-async function loadCatalog() {
-  const [courses, units, lessons, exercises, vocabulary, examples, topics] = await Promise.all([
-    query('SELECT * FROM courses ORDER BY created_at ASC NULLS LAST'),
-    query('SELECT * FROM units ORDER BY unit_number ASC'),
-    query('SELECT * FROM lessons ORDER BY lesson_number ASC'),
-    query('SELECT * FROM exercises ORDER BY exercise_order ASC'),
-    query('SELECT * FROM vocabulary ORDER BY created_at DESC NULLS LAST'),
-    query('SELECT * FROM example_sentences'),
-    query('SELECT vocabulary_id, topic FROM vocabulary_topics')
-  ]);
+function group(list, key) {
+  const map = new Map();
+  for (const row of list) {
+    const id = row[key];
+    if (!map.has(id)) map.set(id, []);
+    map.get(id).push(row);
+  }
+  return map;
+}
 
-  const liveCourses = courses.filter((row) => isLive(row.status));
-  const unitsByCourse = new Map();
-  for (const unit of units) {
-    if (!isLive(unit.status)) continue;
-    if (!unitsByCourse.has(unit.course_id)) unitsByCourse.set(unit.course_id, []);
-    unitsByCourse.get(unit.course_id).push(unit);
+function values(list, key, valueKey) {
+  const map = new Map();
+  for (const row of list) {
+    const id = row[key];
+    if (!map.has(id)) map.set(id, []);
+    map.get(id).push(row[valueKey]);
   }
-  const lessonsByUnit = new Map();
-  for (const lesson of lessons) {
-    if (!isLive(lesson.status)) continue;
-    if (!lessonsByUnit.has(lesson.unit_id)) lessonsByUnit.set(lesson.unit_id, []);
-    lessonsByUnit.get(lesson.unit_id).push(lesson);
-  }
-  const lessonsById = new Map();
-  for (const lesson of lessons) {
-    if (isLive(lesson.status)) lessonsById.set(lesson.id, lesson);
-  }
-  const unitsById = new Map();
-  for (const unit of units) {
-    if (isLive(unit.status)) unitsById.set(unit.id, unit);
-  }
-  const coursesById = new Map(liveCourses.map((course) => [course.id, course]));
-  const exercisesByLesson = new Map();
-  for (const exercise of exercises) {
-    if (!exercisesByLesson.has(exercise.lesson_id)) exercisesByLesson.set(exercise.lesson_id, []);
-    exercisesByLesson.get(exercise.lesson_id).push(exercise);
-  }
-  const examplesByWord = new Map();
-  for (const example of examples) {
-    if (!examplesByWord.has(example.vocabulary_id)) examplesByWord.set(example.vocabulary_id, []);
-    examplesByWord.get(example.vocabulary_id).push(example);
-  }
-  const topicsByWord = new Map();
-  for (const topic of topics) {
-    if (!topicsByWord.has(topic.vocabulary_id)) topicsByWord.set(topic.vocabulary_id, []);
-    topicsByWord.get(topic.vocabulary_id).push(topic.topic);
-  }
-  const wordCountByCourse = new Map();
-  for (const [courseId, courseUnits] of unitsByCourse) {
-    let total = 0;
-    for (const unit of courseUnits) {
-      for (const lesson of lessonsByUnit.get(unit.id) || []) {
-        total += num(lesson.words_count);
+  return map;
+}
+
+async function getCatalog() {
+  if (assembled) return assembled;
+  if (!assembling) {
+    assembling = Promise.all([
+      cachedTable('courses'),
+      cachedTable('units'),
+      cachedTable('lessons'),
+      cachedTable('exercises'),
+      cachedTable('vocabulary'),
+      cachedTable('examples'),
+      cachedTable('vocabulary_topics')
+    ]).then(([courses, units, lessons, exercises, vocabulary, examples, vocabTopics]) => {
+      const liveCourses = courses.filter((row) => isLive(row.status));
+      const allUnitsByCourse = group(units, 'course_id');
+      const liveUnitsByCourse = new Map();
+      for (const [courseId, courseUnits] of allUnitsByCourse) {
+        liveUnitsByCourse.set(courseId, courseUnits.filter((row) => isLive(row.status)));
       }
-    }
-    wordCountByCourse.set(courseId, total);
+      const allLessonsByUnit = group(lessons, 'unit_id');
+      const liveLessonsByUnit = new Map();
+      for (const [unitId, unitLessons] of allLessonsByUnit) {
+        liveLessonsByUnit.set(unitId, unitLessons.filter((row) => isLive(row.status)));
+      }
+      const wordCountByCourse = new Map();
+      for (const [courseId, courseUnits] of liveUnitsByCourse) {
+        let total = 0;
+        for (const unit of courseUnits) {
+          for (const lesson of liveLessonsByUnit.get(unit.id) || []) total += num(lesson.words_count);
+        }
+        wordCountByCourse.set(courseId, total);
+      }
+      assembled = {
+        courses: liveCourses,
+        allCourses: courses,
+        coursesById: new Map(liveCourses.map((course) => [course.id, course])),
+        allCoursesById: new Map(courses.map((course) => [course.id, course])),
+        unitsByCourse: liveUnitsByCourse,
+        allUnitsByCourse,
+        unitsById: new Map(units.filter((row) => isLive(row.status)).map((unit) => [unit.id, unit])),
+        allUnitsById: new Map(units.map((unit) => [unit.id, unit])),
+        lessonsByUnit: liveLessonsByUnit,
+        allLessonsByUnit,
+        lessonsById: new Map(lessons.filter((row) => isLive(row.status)).map((lesson) => [lesson.id, lesson])),
+        allLessonsById: new Map(lessons.map((lesson) => [lesson.id, lesson])),
+        exercisesByLesson: group(exercises, 'lesson_id'),
+        allExercisesById: new Map(exercises.map((exercise) => [exercise.id, exercise])),
+        vocabulary,
+        vocabularyById: new Map(vocabulary.map((item) => [item.id, item])),
+        examplesByWord: group(examples, 'vocabulary_id'),
+        topicsByWord: values(vocabTopics, 'vocabulary_id', 'topic'),
+        wordCountByCourse
+      };
+      assembling = null;
+      return assembled;
+    }).catch((error) => {
+      assembling = null;
+      throw error;
+    });
   }
-
-  return {
-    courses: liveCourses,
-    coursesById,
-    unitsByCourse,
-    unitsById,
-    lessonsByUnit,
-    lessonsById,
-    exercisesByLesson,
-    vocabulary,
-    examplesByWord,
-    topicsByWord,
-    wordCountByCourse
-  };
+  return assembling;
 }
 
 function courseTotals(catalog, courseId) {
@@ -105,4 +131,4 @@ function courseTotals(catalog, courseId) {
   };
 }
 
-module.exports = { getCatalog, invalidateCatalog, courseTotals };
+module.exports = { getCatalog, cachedTable, invalidateCatalog, courseTotals };

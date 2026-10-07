@@ -98,6 +98,7 @@ function ensureReady() {
 
 async function initialize() {
   if (!pool) return;
+  if (isServerless) return;
   const existing = await queryOne("SELECT to_regclass('public.users') AS name");
   if (!existing || !existing.name) {
     const schema = fs.readFileSync(path.join(__dirname, '..', 'sql', 'schema.sql'), 'utf8');

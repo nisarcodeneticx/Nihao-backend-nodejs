@@ -12,7 +12,7 @@ app.use(express.json({ limit: '10mb' }));
 app.use((req, res, next) => {
   const started = Date.now();
   res.on('finish', () => {
-    if (req.originalUrl && req.originalUrl.includes('/v1/')) {
+    if (req.originalUrl && req.originalUrl.includes('/api')) {
       console.log(req.method, req.originalUrl, Date.now() - started + 'ms');
     }
   });
@@ -72,7 +72,10 @@ app.post('/api/v1/api/lessons/:lessonId/complete', requireUser, async (req, res,
   } catch (error) { next(error); }
 });
 
-app.use('/api', optionalUser, mobile);
+app.use('/api', (req, res, next) => {
+  if (req.path.startsWith('/v1')) return next();
+  next('router');
+}, optionalUser, mobile);
 app.use('/api', requireUser, admin);
 
 app.use((error, req, res, next) => {

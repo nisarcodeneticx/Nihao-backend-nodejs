@@ -34,16 +34,18 @@ router.get('/courses', async (req, res, next) => {
       params.push(req.query.status.trim());
       where += ` AND status = $${params.length}`;
     }
-    const total = await queryOne(`SELECT COUNT(*)::int AS count FROM courses ${where}`, params);
-    params.push(size, page * size);
     const rows = await query(
-      `SELECT * FROM courses ${where} ORDER BY ${sortColumn} ${direction} LIMIT $${params.length - 1} OFFSET $${params.length}`,
+      `SELECT c.*,
+        (SELECT COUNT(*)::int FROM units u WHERE u.course_id = c.id) AS unit_count,
+        (SELECT COUNT(*)::int FROM vocabulary) AS vocab_count
+       FROM courses c ${where}
+       ORDER BY ${sortColumn} ${direction}`,
       params
     );
-    const vocab = await queryOne('SELECT COUNT(*)::int AS count FROM vocabulary');
-    const content = [];
-    for (const course of rows) content.push(await courseResponse(course, false, vocab.count));
-    res.json(ok(pageOf(content, total.count, page, size)));
+    const total = rows.length;
+    const vocab = rows[0] ? num(rows[0].vocab_count) : 0;
+    const content = rows.slice(page * size, page * size + size).map((course) => courseRow(course, vocab));
+    res.json(ok(pageOf(content, total, page, size)));
   } catch (error) { next(error); }
 });
 
@@ -111,8 +113,14 @@ router.get('/units/course/:courseId', async (req, res, next) => {
   try {
     const course = await queryOne('SELECT id FROM courses WHERE id = $1', [req.params.courseId]);
     if (!course) return res.json(ok([]));
-    const units = await query('SELECT * FROM units WHERE course_id = $1 ORDER BY unit_number ASC', [req.params.courseId]);
-    res.json(ok(await Promise.all(units.map((unit) => unitResponse(unit, false)))));
+    const units = await query(
+      `SELECT u.*,
+        COALESCE((SELECT array_agg(t.topic) FROM unit_topics t WHERE t.unit_id = u.id), ARRAY[]::text[]) AS topic_list,
+        COALESCE((SELECT array_agg(o.objective) FROM unit_objectives o WHERE o.unit_id = u.id), ARRAY[]::text[]) AS objective_list
+       FROM units u WHERE u.course_id = $1 ORDER BY u.unit_number ASC`,
+      [req.params.courseId]
+    );
+    res.json(ok(units.map((unit) => unitRow(unit, false))));
   } catch (error) { next(error); }
 });
 
@@ -188,8 +196,6 @@ router.delete('/units/:id', async (req, res, next) => {
 
 router.get('/lessons/unit/:unitId', async (req, res, next) => {
   try {
-    const unit = await queryOne('SELECT id FROM units WHERE id = $1', [req.params.unitId]);
-    if (!unit) return res.json(ok([]));
     const lessons = await query('SELECT * FROM lessons WHERE unit_id = $1 ORDER BY lesson_number ASC', [req.params.unitId]);
     res.json(ok(lessons.map((lesson) => lessonResponse(lesson, []))));
   } catch (error) { next(error); }
@@ -313,34 +319,9 @@ router.get('/vocabulary', async (req, res, next) => {
     const page = Number(req.query.page || 0);
     const size = Number(req.query.size || 20);
     const { where, params } = vocabFilter(req.query);
-    const total = await queryOne(`SELECT COUNT(*)::int AS count FROM vocabulary ${where}`, params);
-    const rows = await query(
-      `SELECT * FROM vocabulary ${where} ORDER BY created_at DESC NULLS LAST LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
-      params.concat([size, page * size])
-    );
-    const ids = rows.map((row) => row.id);
-    const [exampleRows, topicRows] = ids.length
-      ? await Promise.all([
-        query('SELECT * FROM example_sentences WHERE vocabulary_id = ANY($1::text[]) ORDER BY created_at ASC', [ids]),
-        query('SELECT vocabulary_id, topic FROM vocabulary_topics WHERE vocabulary_id = ANY($1::text[])', [ids])
-      ])
-      : [[], []];
-    const examplesByWord = new Map();
-    for (const example of exampleRows) {
-      if (!examplesByWord.has(example.vocabulary_id)) examplesByWord.set(example.vocabulary_id, []);
-      examplesByWord.get(example.vocabulary_id).push(example);
-    }
-    const topicsByWord = new Map();
-    for (const topic of topicRows) {
-      if (!topicsByWord.has(topic.vocabulary_id)) topicsByWord.set(topic.vocabulary_id, []);
-      topicsByWord.get(topic.vocabulary_id).push(topic.topic);
-    }
-    const content = rows.map((item) => vocabularyListResponse(
-      item,
-      examplesByWord.get(item.id) || [],
-      topicsByWord.get(item.id) || []
-    ));
-    res.json(ok(pageOf(content, total.count, page, size)));
+    const rows = await query(`SELECT * FROM vocabulary ${where} ORDER BY created_at DESC NULLS LAST`, params);
+    const content = rows.slice(page * size, page * size + size).map((item) => vocabularyListResponse(item, [], []));
+    res.json(ok(pageOf(content, rows.length, page, size)));
   } catch (error) { next(error); }
 });
 
@@ -499,6 +480,24 @@ async function replaceStrings(client, table, idColumn, valueColumn, id, values) 
   for (const value of values || []) {
     await query(`INSERT INTO ${table} (${idColumn}, ${valueColumn}) VALUES ($1,$2)`, [id, value], client);
   }
+}
+
+function courseRow(course, vocabCount) {
+  return {
+    id: course.id, name: course.name, hskLevel: course.hsk_level, description: course.description, difficulty: course.difficulty,
+    coverImageUrl: course.cover_image_url, status: course.status, units: num(course.unit_count), vocabulary: vocabCount,
+    createdBy: course.created_by, createdAt: iso(course.created_at), updatedAt: iso(course.updated_at), publishedAt: iso(course.published_at)
+  };
+}
+
+function unitRow(unit) {
+  return {
+    id: unit.id, unitNumber: num(unit.unit_number), urduTitle: unit.urdu_title, hanziTitle: unit.hanzi_title,
+    grammarPoint: unit.grammar_point, hskLevel: unit.hsk_level, topics: unit.topic_list || [],
+    estimatedTime: num(unit.estimated_time), difficulty: unit.difficulty, learningObjectives: unit.objective_list || [],
+    status: unit.status, version: num(unit.version, 1), publishedAt: iso(unit.published_at), createdBy: unit.created_by,
+    createdAt: iso(unit.created_at), updatedAt: iso(unit.updated_at)
+  };
 }
 
 async function courseResponse(course, includeChildren, vocabCount) {
