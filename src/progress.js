@@ -229,14 +229,15 @@ async function progressDto(userId) {
   };
 }
 
-async function courseProgressDto(userId, courseId) {
-  await ensureCourseProgress(userId, courseId);
-  const profile = await getOrCreateProfile(userId);
+async function courseProgressDto(userId, courseId, client) {
+  await ensureCourseProgress(userId, courseId, client);
+  const profile = await getOrCreateProfile(userId, client);
   const courseProgress = await queryOne(
     'SELECT * FROM user_course_progress WHERE user_id = $1 AND course_id = $2',
-    [userId, courseId]
+    [userId, courseId],
+    client
   );
-  const units = await liveUnits(courseId);
+  const units = await liveUnits(courseId, client);
   return {
     xp: num(profile.total_xp),
     level: num(profile.level, 1),
@@ -244,7 +245,7 @@ async function courseProgressDto(userId, courseId) {
     completedUnits: num(courseProgress.completed_units),
     totalUnits: units.length,
     completedWords: num(courseProgress.completed_words),
-    totalWords: await countWords(courseId),
+    totalWords: await countWords(courseId, client),
     totalCrowns: num(courseProgress.total_crowns)
   };
 }
@@ -263,7 +264,11 @@ async function league(userId) {
   const profiles = await query(
     `SELECT p.*, u.full_name, u.username
      FROM user_profiles p JOIN users u ON u.id = p.user_id
-     ORDER BY p.total_xp DESC LIMIT 100`
+     WHERE u.status = 'ACTIVE'
+       AND upper(u.role) = 'STUDENT'
+       AND lower(u.email) <> 'student@nihao-urdu.com'
+     ORDER BY p.total_xp DESC, p.completed_lessons DESC, u.created_at ASC
+     LIMIT 100`
   );
   const entries = [];
   let yourRank = 0;
@@ -294,20 +299,25 @@ async function league(userId) {
   return { name: 'gold', yourRank, entries };
 }
 
-async function completeLesson(userId, lessonId, body) {
+async function completeLesson(userId, lessonId, body, client) {
   const lesson = await queryOne(
     `SELECT l.*, u.id AS unit_id, u.unit_number, u.course_id, u.status AS unit_status
      FROM lessons l JOIN units u ON u.id = l.unit_id WHERE l.id = $1`,
-    [lessonId]
+    [lessonId],
+    client
   );
   if (!lesson || !isLive(lesson.status)) throw notFound('Lesson not found: ' + lessonId);
-  await ensureCourseProgress(userId, lesson.course_id);
+  await ensureCourseProgress(userId, lesson.course_id, client);
   const lessonProgress = await queryOne(
     'SELECT * FROM user_lesson_progress WHERE user_id = $1 AND lesson_id = $2',
-    [userId, lessonId]
+    [userId, lessonId],
+    client
   );
   if (!lessonProgress) throw badRequest('Lesson progress not initialized');
-  if (lessonProgress.is_complete) throw badRequest('Lesson already completed');
+  if (lessonProgress.is_complete || String(lessonProgress.state).toLowerCase() === 'complete') {
+    return savedLessonResult(userId, lesson, lessonProgress, client);
+  }
+  if (!client) return withTx((tx) => completeLesson(userId, lessonId, body, tx));
   if (String(lessonProgress.state).toLowerCase() !== 'available') throw badRequest('Lesson is not available yet');
 
   const earnedCrowns = clamp(body.earnedCrowns, 0, num(lesson.crowns, 3));
@@ -318,17 +328,20 @@ async function completeLesson(userId, lessonId, body) {
      SET is_complete = TRUE, state = 'complete', earned_crowns = $3, xp_earned = $4,
          completed_items = $5, completed_at = NOW(), updated_at = NOW()
      WHERE user_id = $1 AND lesson_id = $2`,
-    [userId, lessonId, earnedCrowns, xpEarned, completedItems]
+    [userId, lessonId, earnedCrowns, xpEarned, completedItems],
+    client
   );
 
   const unitProgress = await queryOne(
     'SELECT * FROM user_unit_progress WHERE user_id = $1 AND unit_id = $2',
-    [userId, lesson.unit_id]
+    [userId, lesson.unit_id],
+    client
   );
-  const unitLessons = await liveLessons(lesson.unit_id);
+  const unitLessons = await liveLessons(lesson.unit_id, client);
   const progressRows = await query(
     `SELECT * FROM user_lesson_progress WHERE user_id = $1 AND lesson_id = ANY($2::text[])`,
-    [userId, unitLessons.map((item) => item.id)]
+    [userId, unitLessons.map((item) => item.id)],
+    client
   );
   const progressMap = new Map(progressRows.map((row) => [row.lesson_id, row]));
   progressMap.set(lessonId, { ...lessonProgress, is_complete: true });
@@ -347,12 +360,13 @@ async function completeLesson(userId, lessonId, body) {
          state = $6,
          updated_at = NOW()
      WHERE user_id = $1 AND unit_id = $2`,
-    [userId, lesson.unit_id, completedItems, earnedCrowns, String(lesson.lesson_type).toUpperCase() === 'CHECKPOINT', unitState]
+    [userId, lesson.unit_id, completedItems, earnedCrowns, String(lesson.lesson_type).toUpperCase() === 'CHECKPOINT', unitState],
+    client
   );
-  await unlockNextLesson(userId, unitLessons, lessonId);
-  if (unitComplete) await unlockNextUnit(userId, lesson.course_id, lesson.unit_number);
+  await unlockNextLesson(userId, unitLessons, lessonId, client);
+  if (unitComplete) await unlockNextUnit(userId, lesson.course_id, lesson.unit_number, client);
 
-  const profile = await getOrCreateProfile(userId);
+  const profile = await getOrCreateProfile(userId, client);
   const streak = nextStreak(profile);
   const totalXp = num(profile.total_xp) + xpEarned;
   await query(
@@ -361,21 +375,24 @@ async function completeLesson(userId, lessonId, body) {
          completed_lessons = completed_lessons + 1, current_course_id = $6, current_unit_number = $7,
          current_lesson_number = $8, streak_days = $9, last_activity_date = CURRENT_DATE, updated_at = NOW()
      WHERE user_id = $1`,
-    [userId, totalXp, Math.max(1, Math.floor(totalXp / 100) + 1), earnedCrowns, completedItems, lesson.course_id, lesson.unit_number, lesson.lesson_number, streak.days]
+    [userId, totalXp, Math.max(1, Math.floor(totalXp / 100) + 1), earnedCrowns, completedItems, lesson.course_id, lesson.unit_number, lesson.lesson_number, streak.days],
+    client
   );
   const courseProgress = await queryOne(
     'SELECT * FROM user_course_progress WHERE user_id = $1 AND course_id = $2',
-    [userId, lesson.course_id]
+    [userId, lesson.course_id],
+    client
   );
   const completedUnits = num(courseProgress.completed_units) + (unitComplete ? 1 : 0);
-  const totalUnits = (await liveUnits(lesson.course_id)).length;
+  const totalUnits = (await liveUnits(lesson.course_id, client)).length;
   const percent = totalUnits === 0 ? 0 : (completedUnits * 100) / totalUnits;
   await query(
     `UPDATE user_course_progress
      SET completed_words = completed_words + $3, total_crowns = total_crowns + $4,
          completed_units = $5, progress_percent = $6, updated_at = NOW()
      WHERE user_id = $1 AND course_id = $2`,
-    [userId, lesson.course_id, completedItems, earnedCrowns, completedUnits, percent]
+    [userId, lesson.course_id, completedItems, earnedCrowns, completedUnits, percent],
+    client
   );
   return {
     lessonId,
@@ -384,42 +401,59 @@ async function completeLesson(userId, lessonId, body) {
     totalXp,
     streak: streak.days,
     level: Math.max(1, Math.floor(totalXp / 100) + 1),
-    courseProgress: await courseProgressDto(userId, lesson.course_id)
+    courseProgress: await courseProgressDto(userId, lesson.course_id, client)
   };
 }
 
-async function unlockNextLesson(userId, lessons, lessonId) {
+async function savedLessonResult(userId, lesson, lessonProgress, client) {
+  const profile = await getOrCreateProfile(userId, client);
+  return {
+    lessonId: lesson.id,
+    xpEarned: num(lessonProgress.xp_earned),
+    earnedCrowns: num(lessonProgress.earned_crowns),
+    totalXp: num(profile.total_xp),
+    streak: num(profile.streak_days),
+    level: num(profile.level, 1),
+    courseProgress: await courseProgressDto(userId, lesson.course_id, client)
+  };
+}
+
+async function unlockNextLesson(userId, lessons, lessonId, client) {
   const index = lessons.findIndex((lesson) => lesson.id === lessonId);
   if (index < 0 || index + 1 >= lessons.length) return;
   const next = lessons[index + 1];
   await query(
     `UPDATE user_lesson_progress SET state = 'available', updated_at = NOW()
      WHERE user_id = $1 AND lesson_id = $2 AND lower(state) = 'locked'`,
-    [userId, next.id]
+    [userId, next.id],
+    client
   );
 }
 
-async function unlockNextUnit(userId, courseId, unitNumber) {
-  const units = await liveUnits(courseId);
+async function unlockNextUnit(userId, courseId, unitNumber, client) {
+  const units = await liveUnits(courseId, client);
   const index = units.findIndex((unit) => unit.unit_number === unitNumber);
   if (index < 0 || index + 1 >= units.length) return;
   const next = units[index + 1];
   await query(
     `UPDATE user_unit_progress SET is_unlocked = TRUE, state = 'active', updated_at = NOW()
      WHERE user_id = $1 AND unit_id = $2`,
-    [userId, next.id]
+    [userId, next.id],
+    client
   );
-  const lessons = await liveLessons(next.id);
+  const lessons = await liveLessons(next.id, client);
   if (lessons.length) {
     await query(
       `UPDATE user_lesson_progress SET state = 'available', updated_at = NOW()
        WHERE user_id = $1 AND lesson_id = $2 AND lower(state) = 'locked'`,
-      [userId, lessons[0].id]
+      [userId, lessons[0].id],
+      client
     );
   }
   await query(
     `UPDATE user_profiles SET current_unit_number = $2, current_lesson_number = $3, updated_at = NOW() WHERE user_id = $1`,
-    [userId, next.unit_number, lessons.length ? lessons[0].lesson_number : 1]
+    [userId, next.unit_number, lessons.length ? lessons[0].lesson_number : 1],
+    client
   );
 }
 

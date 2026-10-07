@@ -46,6 +46,10 @@ function isLive(status) {
   return status != null && String(status).trim().toUpperCase() !== 'ARCHIVED';
 }
 
+function isGuestUser(user) {
+  return !!user && String(user.email || '').toLowerCase() === 'student@nihao-urdu.com';
+}
+
 function blankToNull(value) {
   return value == null || String(value).trim() === '' ? null : String(value);
 }
@@ -80,5 +84,5 @@ function notFound(message) {
 }
 
 module.exports = {
-  compact, ok, fail, iso, text, num, isLive, blankToNull, pageOf, HttpError, badRequest, notFound
+  compact, ok, fail, iso, text, num, isLive, isGuestUser, blankToNull, pageOf, HttpError, badRequest, notFound
 };

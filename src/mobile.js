@@ -1,6 +1,6 @@
 const express = require('express');
 const { query, queryOne } = require('./db');
-const { notFound, isLive, num, text } = require('./util');
+const { notFound, isLive, isGuestUser, num, text } = require('./util');
 const { ensureCourseProgress, liveUnits, liveLessons, countWords, courseProgressDto, coursePercent, courseListStats, league } = require('./progress');
 
 const router = express.Router();
@@ -92,11 +92,20 @@ router.get('/v1/courses/:courseId/units', async (req, res, next) => {
       )
       : [];
     const progressByUnit = new Map(progressRows.map((row) => [row.unit_id, row]));
+    const lessonIds = lessonRows.map((lesson) => lesson.id);
+    const lessonProgressRows = id && lessonIds.length
+      ? await query(
+        'SELECT lesson_id, is_complete, state FROM user_lesson_progress WHERE user_id = $1 AND lesson_id = ANY($2::text[])',
+        [id, lessonIds]
+      )
+      : [];
+    const lessonProgressById = new Map(lessonProgressRows.map((row) => [row.lesson_id, row]));
     const nodes = slice.map((unit, index) => unitNode(
       unit,
       offset + index,
       lessonsByUnit.get(unit.id) || [],
-      id ? progressByUnit.get(unit.id) : null
+      id ? progressByUnit.get(unit.id) : null,
+      lessonProgressById
     ));
     res.json(okList('Units fetched successfully', nodes));
   } catch (error) { next(error); }
@@ -227,7 +236,8 @@ function okList(message, data) {
 }
 
 function userId(req) {
-  return req.user ? req.user.id : null;
+  if (!req.user || isGuestUser(req.user)) return null;
+  return req.user.id;
 }
 
 async function guestCourseProgress(courseId) {
@@ -293,9 +303,10 @@ async function unitJourney(unit, index, id) {
   return unitNode(unit, index, lessons, progress);
 }
 
-function unitNode(unit, index, lessons, progress) {
+function unitNode(unit, index, lessons, progress, lessonProgressById) {
   const totalItems = lessons.reduce((sum, lesson) => sum + num(lesson.words_count), 0);
   const hasCheckpoint = lessons.some((lesson) => String(lesson.lesson_type).toUpperCase() === 'CHECKPOINT');
+  const savedLessons = lessons.filter((lesson) => lessonSaved(lessonProgressById, lesson.id)).length;
   const base = {
     id: unit.id,
     index,
@@ -312,12 +323,17 @@ function unitNode(unit, index, lessons, progress) {
   return {
     ...base,
     state: progress.state,
-    completedLessons: num(progress.completed_lessons),
+    completedLessons: Math.max(num(progress.completed_lessons), savedLessons),
     completedItems: num(progress.completed_items),
     crowns: num(progress.crowns),
     checkpointCompleted: progress.checkpoint_completed,
     unlocked: progress.is_unlocked
   };
+}
+
+function lessonSaved(lessonProgressById, lessonId) {
+  const row = lessonProgressById && lessonProgressById.get(lessonId);
+  return !!row && (row.is_complete === true || String(row.state).toLowerCase() === 'complete');
 }
 
 function lessonJourney(lesson, progress) {

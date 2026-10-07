@@ -1,7 +1,7 @@
 const path = require('path');
 const express = require('express');
 const { ensureReady } = require('./db');
-const { ok, fail, compact, HttpError } = require('./util');
+const { ok, fail, compact, HttpError, isGuestUser } = require('./util');
 const { adminLogin, mobileLogin, mobileRegister, googleLogin, currentSession, requireUser, optionalUser } = require('./auth');
 const { completeLesson } = require('./progress');
 const mobile = require('./mobile');
@@ -56,6 +56,9 @@ app.get('/api/v1/api/me', requireUser, async (req, res, next) => {
 });
 app.post('/api/v1/api/lessons/:lessonId/complete', requireUser, async (req, res, next) => {
   try {
+    if (isGuestUser(req.user)) {
+      return res.status(401).json({ success: false, message: 'Login required to save progress' });
+    }
     res.json(ok('Lesson completed successfully', await completeLesson(req.user.id, req.params.lessonId, req.body || {})));
   } catch (error) { next(error); }
 });
