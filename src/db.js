@@ -21,14 +21,16 @@ const pool = connectionString
     })
   : null;
 
-async function query(sql, params = [], client) {
+async function query(sql, params, client) {
   const runner = client || pool;
   if (!runner) {
     const error = new Error('DATABASE_URL is not set');
     error.status = 500;
     throw error;
   }
-  const result = await runner.query(sql, params);
+  const result = Array.isArray(params) && params.length
+    ? await runner.query(sql, params)
+    : await runner.query(sql);
   return result.rows;
 }
 
@@ -54,7 +56,12 @@ async function withTx(fn) {
 
 let ready;
 function ensureReady() {
-  if (!ready) ready = initialize();
+  if (!ready) {
+    ready = initialize().catch((error) => {
+      ready = null;
+      throw error;
+    });
+  }
   return ready;
 }
 
@@ -67,7 +74,7 @@ async function initialize() {
   }
   const seeded = await query(
     'SELECT email FROM users WHERE email = ANY($1::text[])',
-    ['admin@nihao-urdu.com', 'student@nihao-urdu.com']
+    [['admin@nihao-urdu.com', 'student@nihao-urdu.com']]
   );
   const have = new Set(seeded.map((row) => String(row.email).toLowerCase()));
   if (!have.has('admin@nihao-urdu.com')) {
