@@ -1,15 +1,25 @@
 const express = require('express');
 const { query, queryOne } = require('./db');
 const { notFound, isLive, num, text } = require('./util');
-const { ensureCourseProgress, liveUnits, liveLessons, countWords, courseProgressDto, coursePercent, league } = require('./progress');
+const { ensureCourseProgress, liveUnits, liveLessons, countWords, courseProgressDto, coursePercent, courseListStats, league } = require('./progress');
 
 const router = express.Router();
 
 router.get('/v1/courses', async (req, res, next) => {
   try {
     const courses = (await query('SELECT * FROM courses ORDER BY created_at ASC NULLS LAST')).filter((row) => isLive(row.status));
-    const items = [];
-    for (let i = 0; i < courses.length; i += 1) items.push(await courseListItem(userId(req), courses[i]));
+    const stats = await courseListStats(userId(req), courses.map((course) => course.id));
+    const items = courses.map((course) => ({
+      id: course.id,
+      title: courseTitle(course),
+      level: text(course.difficulty, 'Beginner'),
+      totalUnits: stats.units.get(course.id) || 0,
+      totalWords: stats.words.get(course.id) || 0,
+      premium: false,
+      unlocked: true,
+      progress: stats.progress.get(course.id) || 0,
+      coverImageUrl: course.cover_image_url
+    }));
     res.json(okList('Courses fetched successfully', items));
   } catch (error) { next(error); }
 });
@@ -207,21 +217,6 @@ async function publishedLesson(id) {
   const lesson = await queryOne('SELECT * FROM lessons WHERE id = $1', [id]);
   if (!lesson || !isLive(lesson.status)) throw notFound('Lesson not found: ' + id);
   return lesson;
-}
-
-async function courseListItem(id, course) {
-  if (id) await ensureCourseProgress(id, course.id);
-  return {
-    id: course.id,
-    title: courseTitle(course),
-    level: text(course.difficulty, 'Beginner'),
-    totalUnits: (await liveUnits(course.id)).length,
-    totalWords: await countWords(course.id),
-    premium: false,
-    unlocked: true,
-    progress: id ? await coursePercent(id, course.id) : 0,
-    coverImageUrl: course.cover_image_url
-  };
 }
 
 function courseTitle(course) {

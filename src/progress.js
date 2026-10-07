@@ -32,64 +32,181 @@ async function liveLessons(unitId, client) {
 }
 
 async function countWords(courseId, client) {
-  const units = await liveUnits(courseId, client);
-  let total = 0;
-  for (const unit of units) {
-    const lessons = await liveLessons(unit.id, client);
-    total += lessons.reduce((sum, lesson) => sum + num(lesson.words_count), 0);
-  }
-  return total;
+  const row = await queryOne(
+    `SELECT COALESCE(SUM(l.words_count), 0)::int AS total
+     FROM lessons l
+     JOIN units u ON u.id = l.unit_id
+     WHERE u.course_id = $1
+       AND u.status IS NOT NULL AND upper(u.status) <> 'ARCHIVED'
+       AND l.status IS NOT NULL AND upper(l.status) <> 'ARCHIVED'`,
+    [courseId],
+    client
+  );
+  return num(row && row.total);
 }
 
 async function ensureCourseProgress(userId, courseId, client) {
-  const course = await queryOne('SELECT * FROM courses WHERE id = $1', [courseId], client);
+  const course = await queryOne('SELECT id, status FROM courses WHERE id = $1', [courseId], client);
   if (!course || !isLive(course.status)) throw notFound('Course not found: ' + courseId);
-  const existing = await queryOne(
-    'SELECT * FROM user_course_progress WHERE user_id = $1 AND course_id = $2',
-    [userId, courseId],
+  await ensureCourses(userId, [courseId], client);
+}
+
+async function courseListStats(userId, courseIds) {
+  const empty = { units: new Map(), words: new Map(), progress: new Map() };
+  if (!courseIds.length) return empty;
+  if (userId) await ensureCourses(userId, courseIds);
+  const [unitRows, wordRows, progressRows] = await Promise.all([
+    query(
+      `SELECT course_id, COUNT(*)::int AS total
+       FROM units
+       WHERE course_id = ANY($1::text[])
+         AND status IS NOT NULL AND upper(status) <> 'ARCHIVED'
+       GROUP BY course_id`,
+      [courseIds]
+    ),
+    query(
+      `SELECT u.course_id, COALESCE(SUM(l.words_count), 0)::int AS total
+       FROM units u
+       JOIN lessons l ON l.unit_id = u.id
+       WHERE u.course_id = ANY($1::text[])
+         AND u.status IS NOT NULL AND upper(u.status) <> 'ARCHIVED'
+         AND l.status IS NOT NULL AND upper(l.status) <> 'ARCHIVED'
+       GROUP BY u.course_id`,
+      [courseIds]
+    ),
+    userId
+      ? query(
+        'SELECT course_id, progress_percent FROM user_course_progress WHERE user_id = $1 AND course_id = ANY($2::text[])',
+        [userId, courseIds]
+      )
+      : Promise.resolve([])
+  ]);
+  return {
+    units: new Map(unitRows.map((row) => [row.course_id, row.total])),
+    words: new Map(wordRows.map((row) => [row.course_id, row.total])),
+    progress: new Map(progressRows.map((row) => [row.course_id, Number(row.progress_percent)]))
+  };
+}
+
+async function ensureCourses(userId, courseIds, client) {
+  if (!courseIds.length) return;
+  const missing = await queryOne(
+    `SELECT COUNT(*)::int AS total
+     FROM lessons l
+     JOIN units u ON u.id = l.unit_id
+     WHERE u.course_id = ANY($2::text[])
+       AND u.status IS NOT NULL AND upper(u.status) <> 'ARCHIVED'
+       AND l.status IS NOT NULL AND upper(l.status) <> 'ARCHIVED'
+       AND NOT EXISTS (
+         SELECT 1 FROM user_lesson_progress p
+         WHERE p.user_id = $1 AND p.lesson_id = l.id
+       )`,
+    [userId, courseIds],
     client
   );
-  if (existing) return;
-  const units = await liveUnits(courseId, client);
-  await query(
-    `INSERT INTO user_course_progress
-      (id, user_id, course_id, is_unlocked, progress_percent, completed_units, completed_words, total_crowns, started_at, updated_at)
-     VALUES ($1,$2,$3,TRUE,0,0,0,0,NOW(),NOW())`,
-    [crypto.randomUUID(), userId, courseId],
+  if (!missing || missing.total === 0) return;
+
+  const units = (await query(
+    `SELECT id, course_id, unit_number
+     FROM units
+     WHERE course_id = ANY($1::text[])
+       AND status IS NOT NULL AND upper(status) <> 'ARCHIVED'
+     ORDER BY unit_number ASC`,
+    [courseIds],
+    client
+  ));
+  const unitIds = units.map((unit) => unit.id);
+  const lessons = unitIds.length
+    ? await query(
+      `SELECT id, unit_id, lesson_number
+       FROM lessons
+       WHERE unit_id = ANY($1::text[])
+         AND status IS NOT NULL AND upper(status) <> 'ARCHIVED'
+       ORDER BY lesson_number ASC`,
+      [unitIds],
+      client
+    )
+    : [];
+  const lessonsByUnit = new Map();
+  for (const lesson of lessons) {
+    if (!lessonsByUnit.has(lesson.unit_id)) lessonsByUnit.set(lesson.unit_id, []);
+    lessonsByUnit.get(lesson.unit_id).push(lesson);
+  }
+  const unitsByCourse = new Map();
+  for (const unit of units) {
+    if (!unitsByCourse.has(unit.course_id)) unitsByCourse.set(unit.course_id, []);
+    unitsByCourse.get(unit.course_id).push(unit);
+  }
+
+  const now = new Date();
+  await insertRows(
+    'user_course_progress',
+    ['id', 'user_id', 'course_id', 'is_unlocked', 'progress_percent', 'completed_units', 'completed_words', 'total_crowns', 'started_at', 'updated_at'],
+    courseIds.map((courseId) => [crypto.randomUUID(), userId, courseId, true, 0, 0, 0, 0, now, now]),
+    ' ON CONFLICT (user_id, course_id) DO NOTHING',
     client
   );
+
   const profile = await getOrCreateProfile(userId, client);
-  if (!profile.current_course_id && units.length) {
+  const firstUnits = unitsByCourse.get(courseIds[0]) || [];
+  if (!profile.current_course_id && firstUnits.length) {
     await query(
       `UPDATE user_profiles SET current_course_id = $2, current_unit_number = $3, current_lesson_number = 1, updated_at = NOW()
        WHERE user_id = $1`,
-      [userId, courseId, units[0].unit_number],
+      [userId, courseIds[0], firstUnits[0].unit_number],
       client
     );
   }
-  for (let unitIndex = 0; unitIndex < units.length; unitIndex += 1) {
-    const unit = units[unitIndex];
-    const lessons = await liveLessons(unit.id, client);
-    const unitUnlocked = unitIndex === 0;
+
+  const unitRows = [];
+  const lessonRows = [];
+  for (const courseId of courseIds) {
+    const courseUnits = unitsByCourse.get(courseId) || [];
+    courseUnits.forEach((unit, unitIndex) => {
+      const unlocked = unitIndex === 0;
+      unitRows.push([crypto.randomUUID(), userId, unit.id, unlocked ? 'active' : 'locked', unlocked, now]);
+      const unitLessons = lessonsByUnit.get(unit.id) || [];
+      unitLessons.forEach((lesson, lessonIndex) => {
+        lessonRows.push([
+          crypto.randomUUID(),
+          userId,
+          lesson.id,
+          unlocked && lessonIndex === 0 ? 'available' : 'locked',
+          now
+        ]);
+      });
+    });
+  }
+  await insertRows(
+    'user_unit_progress',
+    ['id', 'user_id', 'unit_id', 'state', 'is_unlocked', 'completed_lessons', 'completed_items', 'crowns', 'checkpoint_completed', 'updated_at'],
+    unitRows.map((row) => [row[0], row[1], row[2], row[3], row[4], 0, 0, 0, false, row[5]]),
+    ' ON CONFLICT (user_id, unit_id) DO NOTHING',
+    client
+  );
+  await insertRows(
+    'user_lesson_progress',
+    ['id', 'user_id', 'lesson_id', 'state', 'is_complete', 'earned_crowns', 'completed_items', 'xp_earned', 'updated_at'],
+    lessonRows.map((row) => [row[0], row[1], row[2], row[3], false, 0, 0, 0, row[4]]),
+    ' ON CONFLICT (user_id, lesson_id) DO NOTHING',
+    client
+  );
+}
+
+async function insertRows(table, columns, rows, conflict, client) {
+  const size = 40;
+  for (let offset = 0; offset < rows.length; offset += size) {
+    const chunk = rows.slice(offset, offset + size);
+    const values = [];
+    const groups = chunk.map((row) => `(${row.map((value) => {
+      values.push(value);
+      return `$${values.length}`;
+    }).join(',')})`);
     await query(
-      `INSERT INTO user_unit_progress
-        (id, user_id, unit_id, state, is_unlocked, completed_lessons, completed_items, crowns, checkpoint_completed, updated_at)
-       VALUES ($1,$2,$3,$4,$5,0,0,0,FALSE,NOW())
-       ON CONFLICT (user_id, unit_id) DO NOTHING`,
-      [crypto.randomUUID(), userId, unit.id, unitUnlocked ? 'active' : 'locked', unitUnlocked],
+      `INSERT INTO ${table} (${columns.join(', ')}) VALUES ${groups.join(',')}${conflict}`,
+      values,
       client
     );
-    for (let lessonIndex = 0; lessonIndex < lessons.length; lessonIndex += 1) {
-      const available = unitUnlocked && lessonIndex === 0;
-      await query(
-        `INSERT INTO user_lesson_progress
-          (id, user_id, lesson_id, state, is_complete, earned_crowns, completed_items, xp_earned, updated_at)
-         VALUES ($1,$2,$3,$4,FALSE,0,0,0,NOW())
-         ON CONFLICT (user_id, lesson_id) DO NOTHING`,
-        [crypto.randomUUID(), userId, lessons[lessonIndex].id, available ? 'available' : 'locked'],
-        client
-      );
-    }
   }
 }
 
@@ -321,6 +438,6 @@ function clamp(value, min, max) {
 }
 
 module.exports = {
-  getOrCreateProfile, liveUnits, liveLessons, countWords, ensureCourseProgress,
+  getOrCreateProfile, liveUnits, liveLessons, countWords, ensureCourseProgress, courseListStats,
   progressDto, courseProgressDto, coursePercent, league, completeLesson
 };
