@@ -9,14 +9,15 @@ router.get('/v1/courses', async (req, res, next) => {
   try {
     const courses = (await query('SELECT * FROM courses ORDER BY created_at ASC NULLS LAST')).filter((row) => isLive(row.status));
     const items = [];
-    for (let i = 0; i < courses.length; i += 1) items.push(await courseListItem(req.user.id, courses[i]));
+    for (let i = 0; i < courses.length; i += 1) items.push(await courseListItem(userId(req), courses[i]));
     res.json(okList('Courses fetched successfully', items));
   } catch (error) { next(error); }
 });
 
 router.get('/v1/courses/:courseId', async (req, res, next) => {
   try {
-    await ensureCourseProgress(req.user.id, req.params.courseId);
+    const id = userId(req);
+    if (id) await ensureCourseProgress(id, req.params.courseId);
     const course = await publishedCourse(req.params.courseId);
     const units = await liveUnits(course.id);
     res.json(okList('Course detail fetched successfully', {
@@ -27,7 +28,7 @@ router.get('/v1/courses/:courseId', async (req, res, next) => {
       totalUnits: units.length,
       totalWords: await countWords(course.id),
       premium: false,
-      progress: await coursePercent(req.user.id, course.id),
+      progress: id ? await coursePercent(id, course.id) : 0,
       version: '1.0.0',
       units: await Promise.all(units.map(unitSummary))
     }));
@@ -36,19 +37,26 @@ router.get('/v1/courses/:courseId', async (req, res, next) => {
 
 router.get('/v1/courses/:courseId/progress', async (req, res, next) => {
   try {
-    res.json(okList('Course progress fetched successfully', await courseProgressDto(req.user.id, req.params.courseId)));
+    const id = userId(req);
+    const data = id
+      ? await courseProgressDto(id, req.params.courseId)
+      : await guestCourseProgress(req.params.courseId);
+    res.json(okList('Course progress fetched successfully', data));
   } catch (error) { next(error); }
 });
 
 router.get('/v1/league', async (req, res, next) => {
   try {
-    res.json(okList('League fetched successfully', await league(req.user.id)));
+    const id = userId(req);
+    const data = id ? await league(id) : { name: 'gold', yourRank: 0, entries: [] };
+    res.json(okList('League fetched successfully', data));
   } catch (error) { next(error); }
 });
 
 router.get('/v1/courses/:courseId/units', async (req, res, next) => {
   try {
-    await ensureCourseProgress(req.user.id, req.params.courseId);
+    const id = userId(req);
+    if (id) await ensureCourseProgress(id, req.params.courseId);
     await publishedCourse(req.params.courseId);
     const all = await liveUnits(req.params.courseId);
     const offset = Math.max(Number(req.query.offset || 0), 0);
@@ -56,7 +64,7 @@ router.get('/v1/courses/:courseId/units', async (req, res, next) => {
     const from = Math.min(offset, all.length);
     const slice = all.slice(from, Math.min(from + limit, all.length));
     const nodes = [];
-    for (let i = 0; i < slice.length; i += 1) nodes.push(await unitJourney(slice[i], offset + i, req.user.id));
+    for (let i = 0; i < slice.length; i += 1) nodes.push(await unitJourney(slice[i], offset + i, id));
     res.json(okList('Units fetched successfully', nodes));
   } catch (error) { next(error); }
 });
@@ -64,7 +72,8 @@ router.get('/v1/courses/:courseId/units', async (req, res, next) => {
 router.get('/v1/units/:unitId', async (req, res, next) => {
   try {
     const unit = await publishedUnit(req.params.unitId);
-    await ensureCourseProgress(req.user.id, unit.course_id);
+    const id = userId(req);
+    if (id) await ensureCourseProgress(id, unit.course_id);
     const lessons = await liveLessons(unit.id);
     res.json(okList('Unit detail fetched successfully', {
       id: unit.id,
@@ -83,13 +92,21 @@ router.get('/v1/units/:unitId', async (req, res, next) => {
 router.get('/v1/units/:unitId/lessons', async (req, res, next) => {
   try {
     const unit = await publishedUnit(req.params.unitId);
-    await ensureCourseProgress(req.user.id, unit.course_id);
+    const id = userId(req);
+    if (id) await ensureCourseProgress(id, unit.course_id);
     const lessons = await liveLessons(unit.id);
-    const rows = lessons.length
-      ? await query('SELECT * FROM user_lesson_progress WHERE user_id = $1 AND lesson_id = ANY($2::text[])', [req.user.id, lessons.map((lesson) => lesson.id)])
+    const rows = id && lessons.length
+      ? await query('SELECT * FROM user_lesson_progress WHERE user_id = $1 AND lesson_id = ANY($2::text[])', [id, lessons.map((lesson) => lesson.id)])
       : [];
     const map = new Map(rows.map((row) => [row.lesson_id, row]));
-    res.json(okList('Lessons fetched successfully', lessons.map((lesson) => lessonJourney(lesson, map.get(lesson.id)))));
+    const units = await liveUnits(unit.course_id);
+    const firstUnit = units.length > 0 && units[0].id === unit.id;
+    res.json(okList('Lessons fetched successfully', lessons.map((lesson, index) => {
+      if (!id && firstUnit && index === 0) {
+        return lessonJourney(lesson, { earned_crowns: 0, is_complete: false, state: 'available' });
+      }
+      return lessonJourney(lesson, map.get(lesson.id));
+    })));
   } catch (error) { next(error); }
 });
 
@@ -155,6 +172,25 @@ function okList(message, data) {
   return { success: true, message, data };
 }
 
+function userId(req) {
+  return req.user ? req.user.id : null;
+}
+
+async function guestCourseProgress(courseId) {
+  const course = await publishedCourse(courseId);
+  const units = await liveUnits(course.id);
+  return {
+    xp: 0,
+    level: 1,
+    streak: 0,
+    completedUnits: 0,
+    totalUnits: units.length,
+    completedWords: 0,
+    totalWords: await countWords(course.id),
+    totalCrowns: 0
+  };
+}
+
 async function publishedCourse(id) {
   const course = await queryOne('SELECT * FROM courses WHERE id = $1', [id]);
   if (!course || !isLive(course.status)) throw notFound('Course not found: ' + id);
@@ -173,8 +209,8 @@ async function publishedLesson(id) {
   return lesson;
 }
 
-async function courseListItem(userId, course) {
-  await ensureCourseProgress(userId, course.id);
+async function courseListItem(id, course) {
+  if (id) await ensureCourseProgress(id, course.id);
   return {
     id: course.id,
     title: courseTitle(course),
@@ -183,7 +219,7 @@ async function courseListItem(userId, course) {
     totalWords: await countWords(course.id),
     premium: false,
     unlocked: true,
-    progress: await coursePercent(userId, course.id),
+    progress: id ? await coursePercent(id, course.id) : 0,
     coverImageUrl: course.cover_image_url
   };
 }
@@ -210,9 +246,11 @@ async function unitSummary(unit) {
   };
 }
 
-async function unitJourney(unit, index, userId) {
+async function unitJourney(unit, index, id) {
   const lessons = await liveLessons(unit.id);
-  const progress = await queryOne('SELECT * FROM user_unit_progress WHERE user_id = $1 AND unit_id = $2', [userId, unit.id]);
+  const progress = id
+    ? await queryOne('SELECT * FROM user_unit_progress WHERE user_id = $1 AND unit_id = $2', [id, unit.id])
+    : null;
   const totalItems = lessons.reduce((sum, lesson) => sum + num(lesson.words_count), 0);
   const hasCheckpoint = lessons.some((lesson) => String(lesson.lesson_type).toUpperCase() === 'CHECKPOINT');
   const base = {

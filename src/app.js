@@ -2,7 +2,7 @@ const path = require('path');
 const express = require('express');
 const { ensureReady } = require('./db');
 const { ok, fail, compact, HttpError } = require('./util');
-const { adminLogin, mobileLogin, mobileRegister, googleLogin, currentSession, requireUser } = require('./auth');
+const { adminLogin, mobileLogin, mobileRegister, googleLogin, currentSession, requireUser, optionalUser } = require('./auth');
 const { completeLesson } = require('./progress');
 const mobile = require('./mobile');
 const admin = require('./admin');
@@ -60,7 +60,7 @@ app.post('/api/v1/api/lessons/:lessonId/complete', requireUser, async (req, res,
   } catch (error) { next(error); }
 });
 
-app.use('/api', requireUser, mobile);
+app.use('/api', optionalUser, mobile);
 app.use('/api', requireUser, admin);
 
 app.use((error, req, res, next) => {

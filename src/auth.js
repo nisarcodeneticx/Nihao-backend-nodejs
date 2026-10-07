@@ -197,18 +197,35 @@ async function verifyGoogle(idToken) {
 
 async function requireUser(req, res, next) {
   try {
-    const token = readToken(req.headers.authorization);
-    if (!token) return res.status(401).json({ success: false, message: 'Unauthorized' });
-    const email = verifyToken(token);
-    const user = await findByEmail(email);
-    if (!user || user.status !== 'ACTIVE') {
-      return res.status(401).json({ success: false, message: 'Unauthorized' });
-    }
+    const user = await userFromRequest(req);
+    if (!user) return res.status(401).json({ success: false, message: 'Unauthorized' });
     req.user = user;
     next();
   } catch {
     res.status(401).json({ success: false, message: 'Unauthorized' });
   }
+}
+
+async function optionalUser(req, res, next) {
+  try {
+    req.user = await userFromRequest(req);
+    next();
+  } catch {
+    res.status(401).json({ success: false, message: 'Unauthorized' });
+  }
+}
+
+async function userFromRequest(req) {
+  const token = readToken(req.headers.authorization);
+  if (!token) return null;
+  const email = verifyToken(token);
+  const user = await findByEmail(email);
+  if (!user || user.status !== 'ACTIVE') {
+    const error = new Error('Unauthorized');
+    error.status = 401;
+    throw error;
+  }
+  return user;
 }
 
 function requireAdmin(req, res, next) {
@@ -220,5 +237,5 @@ function requireAdmin(req, res, next) {
 }
 
 module.exports = {
-  adminLogin, mobileLogin, mobileRegister, googleLogin, currentSession, requireUser, requireAdmin
+  adminLogin, mobileLogin, mobileRegister, googleLogin, currentSession, requireUser, optionalUser, requireAdmin
 };
