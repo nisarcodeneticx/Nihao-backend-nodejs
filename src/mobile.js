@@ -24,6 +24,42 @@ router.get('/v1/courses', async (req, res, next) => {
   } catch (error) { next(error); }
 });
 
+router.get('/v1/home', async (req, res, next) => {
+  try {
+    const id = userId(req);
+    const courses = (await query('SELECT * FROM courses ORDER BY created_at ASC NULLS LAST')).filter((row) => isLive(row.status));
+    const course = courses[0];
+    if (!course) return res.json(okList('Home fetched successfully', null));
+    const stats = await courseListStats(id, [course.id]);
+    const [journey, progress] = await Promise.all([
+      courseJourney(id, course.id),
+      id ? courseProgressDto(id, course.id) : guestCourseProgress(course.id)
+    ]);
+    const requested = text(req.query.unitId);
+    const unit = journey.nodes.find((node) => node.id === requested)
+      || journey.nodes.find((node) => node.unlocked || String(node.state).toLowerCase() === 'active')
+      || journey.nodes[0]
+      || null;
+    res.json(okList('Home fetched successfully', {
+      course: {
+        id: course.id,
+        title: courseTitle(course),
+        level: text(course.difficulty, 'Beginner'),
+        totalUnits: stats.units.get(course.id) || journey.nodes.length,
+        totalWords: stats.words.get(course.id) || 0,
+        premium: false,
+        unlocked: true,
+        progress: stats.progress.get(course.id) || 0,
+        coverImageUrl: course.cover_image_url
+      },
+      units: journey.nodes,
+      unitId: unit ? unit.id : null,
+      lessons: unit ? journey.lessonsFor(unit.id) : [],
+      progress
+    }));
+  } catch (error) { next(error); }
+});
+
 router.get('/v1/courses/:courseId', async (req, res, next) => {
   try {
     const id = userId(req);
@@ -275,6 +311,56 @@ async function publishedLesson(id) {
 
 function courseTitle(course) {
   return { ur: text(course.description, course.name), en: course.name };
+}
+
+async function courseJourney(id, courseId) {
+  const all = await liveUnits(courseId);
+  const unitIds = all.map((unit) => unit.id);
+  const lessonRows = unitIds.length
+    ? (await query(
+      'SELECT * FROM lessons WHERE unit_id = ANY($1::text[]) ORDER BY lesson_number ASC',
+      [unitIds]
+    )).filter((lesson) => isLive(lesson.status))
+    : [];
+  const lessonsByUnit = new Map();
+  for (const lesson of lessonRows) {
+    if (!lessonsByUnit.has(lesson.unit_id)) lessonsByUnit.set(lesson.unit_id, []);
+    lessonsByUnit.get(lesson.unit_id).push(lesson);
+  }
+  const lessonIds = lessonRows.map((lesson) => lesson.id);
+  const [progressRows, lessonProgressRows] = await Promise.all([
+    id && unitIds.length
+      ? query('SELECT * FROM user_unit_progress WHERE user_id = $1 AND unit_id = ANY($2::text[])', [id, unitIds])
+      : Promise.resolve([]),
+    id && lessonIds.length
+      ? query(
+        'SELECT lesson_id, is_complete, state, earned_crowns FROM user_lesson_progress WHERE user_id = $1 AND lesson_id = ANY($2::text[])',
+        [id, lessonIds]
+      )
+      : Promise.resolve([])
+  ]);
+  const progressByUnit = new Map(progressRows.map((row) => [row.unit_id, row]));
+  const lessonProgressById = new Map(lessonProgressRows.map((row) => [row.lesson_id, row]));
+  const firstUnitId = all.length ? all[0].id : null;
+  return {
+    nodes: all.map((unit, index) => unitNode(
+      unit,
+      index,
+      lessonsByUnit.get(unit.id) || [],
+      id ? progressByUnit.get(unit.id) : null,
+      lessonProgressById
+    )),
+    lessonsFor(unitId) {
+      const lessons = lessonsByUnit.get(unitId) || [];
+      const firstUnit = unitId === firstUnitId;
+      return lessons.map((lesson, index) => {
+        if (!id && firstUnit && index === 0) {
+          return lessonJourney(lesson, { earned_crowns: 0, is_complete: false, state: 'available' });
+        }
+        return lessonJourney(lesson, lessonProgressById.get(lesson.id));
+      });
+    }
+  };
 }
 
 async function unitSummary(unit) {
