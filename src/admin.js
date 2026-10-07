@@ -2,9 +2,19 @@ const express = require('express');
 const { query, queryOne, withTx } = require('./db');
 const { ok, iso, text, num, pageOf, badRequest, notFound, blankToNull } = require('./util');
 const { requireAdmin } = require('./auth');
+const { invalidateCatalog } = require('./catalog');
 
 const router = express.Router();
 router.use(requireAdmin);
+router.use((req, res, next) => {
+  if (req.method === 'GET' || req.method === 'HEAD') return next();
+  const send = res.json.bind(res);
+  res.json = (body) => {
+    if (res.statusCode < 400) invalidateCatalog();
+    return send(body);
+  };
+  next();
+});
 
 const COURSE_SORT = { createdAt: 'created_at', name: 'name', status: 'status', hskLevel: 'hsk_level', updatedAt: 'updated_at' };
 

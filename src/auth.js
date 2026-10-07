@@ -11,8 +11,12 @@ function secret() {
   return process.env.JWT_SECRET || process.env.APP_JWT_SECRET || 'dev-only-change-me';
 }
 
-function sign(email, expiresInMs) {
-  return jwt.sign({ sub: email }, secret(), { expiresIn: Math.floor(expiresInMs / 1000) });
+function sign(user, expiresInMs) {
+  return jwt.sign(
+    { sub: user.email, uid: user.id, role: user.role },
+    secret(),
+    { expiresIn: Math.floor(expiresInMs / 1000) }
+  );
 }
 
 function readToken(header) {
@@ -44,7 +48,7 @@ async function adminLogin(body) {
   }
   await query('UPDATE users SET last_login = NOW(), updated_at = NOW() WHERE id = $1', [user.id]);
   return {
-    token: sign(user.email, ACCESS_MS),
+    token: sign(user, ACCESS_MS),
     username: user.username,
     email: user.email,
     role: user.role,
@@ -119,7 +123,8 @@ async function googleLogin(body) {
 }
 
 async function currentSession(user) {
-  return toMobile(user, false);
+  const full = user.id ? await queryOne('SELECT * FROM users WHERE id = $1', [user.id]) : null;
+  return toMobile(full || user, false);
 }
 
 async function issueMobile(user) {
@@ -130,8 +135,8 @@ async function issueMobile(user) {
 
 async function toMobile(user) {
   return {
-    token: sign(user.email, ACCESS_MS),
-    refreshToken: sign(user.email, REFRESH_MS),
+    token: sign(user, ACCESS_MS),
+    refreshToken: sign(user, REFRESH_MS),
     userId: user.id,
     username: user.username,
     email: user.email,
@@ -218,8 +223,17 @@ async function optionalUser(req, res, next) {
 async function userFromRequest(req) {
   const token = readToken(req.headers.authorization);
   if (!token) return null;
-  const email = verifyToken(token);
-  const user = await findByEmail(email);
+  const payload = jwt.verify(token, secret());
+  if (payload.uid) {
+    return {
+      id: payload.uid,
+      email: payload.sub,
+      username: payload.sub,
+      role: payload.role || 'STUDENT',
+      status: 'ACTIVE'
+    };
+  }
+  const user = await findByEmail(payload.sub);
   if (!user || user.status !== 'ACTIVE') {
     const error = new Error('Unauthorized');
     error.status = 401;

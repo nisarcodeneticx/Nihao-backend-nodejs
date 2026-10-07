@@ -10,6 +10,15 @@ const admin = require('./admin');
 const app = express();
 app.use(express.json({ limit: '10mb' }));
 app.use((req, res, next) => {
+  const started = Date.now();
+  res.on('finish', () => {
+    if (req.originalUrl && req.originalUrl.includes('/v1/')) {
+      console.log(req.method, req.originalUrl, Date.now() - started + 'ms');
+    }
+  });
+  next();
+});
+app.use((req, res, next) => {
   const origin = req.headers.origin;
   res.setHeader('Access-Control-Allow-Origin', !origin || origin === 'null' ? (origin === 'null' ? 'null' : '*') : origin);
   res.setHeader('Vary', 'Origin');

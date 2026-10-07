@@ -8,11 +8,16 @@ if (!connectionString) {
   console.warn('DATABASE_URL is not set. Copy .env.example to .env and paste the Supabase pooler URI.');
 }
 
+const isServerless = !!process.env.VERCEL;
+
 const pool = connectionString
   ? new Pool({
       connectionString,
       ssl: process.env.DATABASE_SSL === 'false' ? false : { rejectUnauthorized: false },
-      max: 5
+      max: isServerless ? 1 : 5,
+      idleTimeoutMillis: isServerless ? 8000 : 30000,
+      connectionTimeoutMillis: 8000,
+      allowExitOnIdle: isServerless
     })
   : null;
 
@@ -55,22 +60,34 @@ function ensureReady() {
 
 async function initialize() {
   if (!pool) return;
-  const schema = fs.readFileSync(path.join(__dirname, '..', 'sql', 'schema.sql'), 'utf8');
-  await pool.query(schema);
-  await seedUser({
-    email: 'admin@nihao-urdu.com',
-    username: 'admin',
-    password: 'admin123',
-    fullName: 'Admin User',
-    role: 'ADMIN'
-  });
-  await seedUser({
-    email: 'student@nihao-urdu.com',
-    username: 'student',
-    password: 'student123',
-    fullName: 'Test Student',
-    role: 'STUDENT'
-  });
+  const existing = await queryOne("SELECT to_regclass('public.users') AS name");
+  if (!existing || !existing.name) {
+    const schema = fs.readFileSync(path.join(__dirname, '..', 'sql', 'schema.sql'), 'utf8');
+    await pool.query(schema);
+  }
+  const seeded = await query(
+    'SELECT email FROM users WHERE email = ANY($1::text[])',
+    ['admin@nihao-urdu.com', 'student@nihao-urdu.com']
+  );
+  const have = new Set(seeded.map((row) => String(row.email).toLowerCase()));
+  if (!have.has('admin@nihao-urdu.com')) {
+    await seedUser({
+      email: 'admin@nihao-urdu.com',
+      username: 'admin',
+      password: 'admin123',
+      fullName: 'Admin User',
+      role: 'ADMIN'
+    });
+  }
+  if (!have.has('student@nihao-urdu.com')) {
+    await seedUser({
+      email: 'student@nihao-urdu.com',
+      username: 'student',
+      password: 'student123',
+      fullName: 'Test Student',
+      role: 'STUDENT'
+    });
+  }
 }
 
 async function seedUser(user) {

@@ -229,6 +229,40 @@ async function progressDto(userId) {
   };
 }
 
+async function lightCourseProgress(userId, courseId, totals) {
+  const totalUnits = num(totals && totals.totalUnits);
+  const totalWords = num(totals && totals.totalWords);
+  if (!userId) {
+    return {
+      xp: 0,
+      level: 1,
+      streak: 0,
+      completedUnits: 0,
+      totalUnits,
+      completedWords: 0,
+      totalWords,
+      totalCrowns: 0
+    };
+  }
+  const [profile, courseProgress] = await Promise.all([
+    queryOne('SELECT total_xp, level, streak_days FROM user_profiles WHERE user_id = $1', [userId]),
+    queryOne(
+      'SELECT completed_units, completed_words, total_crowns FROM user_course_progress WHERE user_id = $1 AND course_id = $2',
+      [userId, courseId]
+    )
+  ]);
+  return {
+    xp: num(profile && profile.total_xp),
+    level: num(profile && profile.level, 1),
+    streak: num(profile && profile.streak_days),
+    completedUnits: num(courseProgress && courseProgress.completed_units),
+    totalUnits,
+    completedWords: num(courseProgress && courseProgress.completed_words),
+    totalWords,
+    totalCrowns: num(courseProgress && courseProgress.total_crowns)
+  };
+}
+
 async function courseProgressDto(userId, courseId, client) {
   await ensureCourseProgress(userId, courseId, client);
   const profile = await getOrCreateProfile(userId, client);
@@ -477,5 +511,5 @@ function clamp(value, min, max) {
 
 module.exports = {
   getOrCreateProfile, liveUnits, liveLessons, countWords, ensureCourseProgress, courseListStats,
-  progressDto, courseProgressDto, coursePercent, league, completeLesson
+  progressDto, courseProgressDto, lightCourseProgress, coursePercent, league, completeLesson
 };
