@@ -318,7 +318,29 @@ router.get('/vocabulary', async (req, res, next) => {
       `SELECT * FROM vocabulary ${where} ORDER BY created_at DESC NULLS LAST LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
       params.concat([size, page * size])
     );
-    res.json(ok(pageOf(await Promise.all(rows.map(vocabularyResponse)), total.count, page, size)));
+    const ids = rows.map((row) => row.id);
+    const [exampleRows, topicRows] = ids.length
+      ? await Promise.all([
+        query('SELECT * FROM example_sentences WHERE vocabulary_id = ANY($1::text[]) ORDER BY created_at ASC', [ids]),
+        query('SELECT vocabulary_id, topic FROM vocabulary_topics WHERE vocabulary_id = ANY($1::text[])', [ids])
+      ])
+      : [[], []];
+    const examplesByWord = new Map();
+    for (const example of exampleRows) {
+      if (!examplesByWord.has(example.vocabulary_id)) examplesByWord.set(example.vocabulary_id, []);
+      examplesByWord.get(example.vocabulary_id).push(example);
+    }
+    const topicsByWord = new Map();
+    for (const topic of topicRows) {
+      if (!topicsByWord.has(topic.vocabulary_id)) topicsByWord.set(topic.vocabulary_id, []);
+      topicsByWord.get(topic.vocabulary_id).push(topic.topic);
+    }
+    const content = rows.map((item) => vocabularyListResponse(
+      item,
+      examplesByWord.get(item.id) || [],
+      topicsByWord.get(item.id) || []
+    ));
+    res.json(ok(pageOf(content, total.count, page, size)));
   } catch (error) { next(error); }
 });
 
@@ -531,10 +553,14 @@ function exerciseResponse(exercise) {
 
 async function vocabularyResponse(item) {
   const examples = await query('SELECT * FROM example_sentences WHERE vocabulary_id = $1 ORDER BY created_at ASC', [item.id]);
+  return vocabularyListResponse(item, examples, await listColumn('vocabulary_topics', 'vocabulary_id', 'topic', item.id));
+}
+
+function vocabularyListResponse(item, examples, topics) {
   return {
     id: item.id, hanzi: item.hanzi, pinyin: item.pinyin, tone: num(item.tone), urduTranslation: item.urdu_translation,
     romanUrdu: item.roman_urdu, literalGloss: item.literal_gloss, partOfSpeech: item.part_of_speech, hskLevel: num(item.hsk_level, 1),
-    topics: await listColumn('vocabulary_topics', 'vocabulary_id', 'topic', item.id), frequency: num(item.frequency),
+    topics, frequency: num(item.frequency),
     strokeCount: item.stroke_count, radical: item.radical, audioMaleUrl: item.audio_male_url, audioFemaleUrl: item.audio_female_url,
     illustrationUrl: item.illustration_url, examples: examples.map((example) => ({ id: example.id, hanzi: example.hanzi, pinyin: example.pinyin, urdu: example.urdu, createdAt: iso(example.created_at) })),
     createdBy: item.created_by, createdAt: iso(item.created_at), updatedAt: iso(item.updated_at)

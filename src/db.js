@@ -21,16 +21,47 @@ const pool = connectionString
     })
   : null;
 
+function isPgClient(value) {
+  return !!value && typeof value.query === 'function' && !Array.isArray(value);
+}
+
+function sqlValue(value) {
+  if (value === null || value === undefined) return 'NULL';
+  if (typeof value === 'boolean') return value ? 'TRUE' : 'FALSE';
+  if (typeof value === 'number') return Number.isFinite(value) ? String(value) : 'NULL';
+  if (value instanceof Date) return "'" + value.toISOString().replace(/'/g, "''") + "'";
+  if (Buffer.isBuffer(value)) return "'\\x" + value.toString('hex') + "'";
+  if (Array.isArray(value)) {
+    if (!value.length) return 'ARRAY[]::text[]';
+    return 'ARRAY[' + value.map(sqlValue).join(',') + ']';
+  }
+  if (typeof value === 'object') return sqlValue(JSON.stringify(value));
+  return "'" + String(value).replace(/\\/g, '\\\\').replace(/'/g, "''") + "'";
+}
+
+function bindSql(sql, params) {
+  if (!params || !params.length) return sql;
+  return sql.replace(/\$(\d+)/g, (_, raw) => {
+    const index = Number(raw) - 1;
+    if (index < 0 || index >= params.length) {
+      throw new Error('Missing query parameter $' + raw);
+    }
+    return sqlValue(params[index]);
+  });
+}
+
 async function query(sql, params, client) {
+  if (isPgClient(params) && client == null) {
+    client = params;
+    params = [];
+  }
   const runner = client || pool;
   if (!runner) {
     const error = new Error('DATABASE_URL is not set');
     error.status = 500;
     throw error;
   }
-  const result = Array.isArray(params) && params.length
-    ? await runner.query(sql, params)
-    : await runner.query(sql);
+  const result = await runner.query(bindSql(sql, Array.isArray(params) ? params : []));
   return result.rows;
 }
 
