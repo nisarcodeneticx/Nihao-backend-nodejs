@@ -10,8 +10,18 @@ function compact(value) {
   return value;
 }
 
-function ok(data, message = 'Success') {
-  return compact({ success: true, message, data });
+function ok(first, second) {
+  if (second === undefined) {
+    return compact({ success: true, message: 'Success', data: first });
+  }
+  if (typeof first === 'string') {
+    return compact({ success: true, message: first, data: second });
+  }
+  return compact({
+    success: true,
+    message: typeof second === 'string' ? second : 'Success',
+    data: first
+  });
 }
 
 function fail(message, error) {
